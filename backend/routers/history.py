@@ -23,7 +23,7 @@ def list_history(
     q = db.query(KvHistory)
 
     if key:
-        q = q.filter(KvHistory.key == key)
+        q = q.filter(KvHistory.key.like(f"%{key}%"))
     if start:
         q = q.filter(KvHistory.changed_at >= start)
     if end:
@@ -51,7 +51,7 @@ def export_history(
 
     q = db.query(KvHistory)
     if key:
-        q = q.filter(KvHistory.key == key)
+        q = q.filter(KvHistory.key.like(f"%{key}%"))
     if start:
         q = q.filter(KvHistory.changed_at >= start)
     if end:
