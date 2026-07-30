@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import AlertRule
 from schemas import AlertRuleCreate, AlertRuleUpdate, AlertRuleToggle, AlertRuleOut, ApiResponse
+from auth import auth_optional
 
 router = APIRouter(prefix="/api", tags=["告警规则"])
 
@@ -17,7 +18,7 @@ def list_alerts(db: Session = Depends(get_db)):
 
 
 @router.post("/alerts", response_model=ApiResponse)
-def create_alert(req: AlertRuleCreate, db: Session = Depends(get_db)):
+def create_alert(req: AlertRuleCreate, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
     rule = AlertRule(**req.dict())
     db.add(rule)
     db.commit()
@@ -25,7 +26,7 @@ def create_alert(req: AlertRuleCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/alerts/{rule_id}", response_model=ApiResponse)
-def update_alert(rule_id: int, req: AlertRuleUpdate, db: Session = Depends(get_db)):
+def update_alert(rule_id: int, req: AlertRuleUpdate, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
     rule = db.query(AlertRule).filter(AlertRule.id == rule_id).first()
     if not rule:
         raise HTTPException(404, "规则不存在")
@@ -36,7 +37,7 @@ def update_alert(rule_id: int, req: AlertRuleUpdate, db: Session = Depends(get_d
 
 
 @router.post("/alerts/{rule_id}/toggle", response_model=ApiResponse)
-def toggle_alert(rule_id: int, req: AlertRuleToggle, db: Session = Depends(get_db)):
+def toggle_alert(rule_id: int, req: AlertRuleToggle, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
     rule = db.query(AlertRule).filter(AlertRule.id == rule_id).first()
     if not rule:
         raise HTTPException(404, "规则不存在")
@@ -46,7 +47,7 @@ def toggle_alert(rule_id: int, req: AlertRuleToggle, db: Session = Depends(get_d
 
 
 @router.delete("/alerts/{rule_id}", response_model=ApiResponse)
-def delete_alert(rule_id: int, db: Session = Depends(get_db)):
+def delete_alert(rule_id: int, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
     rule = db.query(AlertRule).filter(AlertRule.id == rule_id).first()
     if rule:
         db.delete(rule)
