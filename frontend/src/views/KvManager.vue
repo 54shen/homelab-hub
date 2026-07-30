@@ -86,8 +86,15 @@
       size="small"
       :row-key="(r: KvEntry) => r.key"
       :checked-row-keys="checkedKeys"
-      :pagination="pagination"
+      :pagination="{
+        page: kvPage,
+        pageSize: kvPageSize,
+        showSizePicker: true,
+        pageSizes: [10, 20, 50, 100]
+      }"
       style="background: var(--bg-card); border-radius: var(--radius-lg)"
+      @update:page="kvPage = $event"
+      @update:page-size="kvPageSize = $event; kvPage = 1"
       @update:checked-row-keys="handleCheck"
     />
 
@@ -122,7 +129,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   NButton, NCard, NDataTable, NInput, NModal, NForm, NFormItem,
   NSelect, NInputNumber, NSpace, NPopconfirm, NUpload, useMessage
@@ -308,7 +315,8 @@ async function handleImport({ file }: { file: File }) {
   } catch { message.error('导入失败，请检查文件格式') }
 }
 
-const pagination = reactive({ pageSize: 20, showSizePicker: true, pageSizes: [10, 20, 50] as number[] })
+const kvPage = ref(1)
+const kvPageSize = ref(20)
 const refreshInterval = useRefreshInterval()
 
 async function loadData() {

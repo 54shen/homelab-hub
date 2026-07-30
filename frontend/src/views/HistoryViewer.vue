@@ -54,14 +54,21 @@
       :bordered="false"
       :single-line="false"
       size="small"
-      :pagination="pagination"
+      :pagination="{
+        page: histPage,
+        pageSize: histPageSize,
+        showSizePicker: true,
+        pageSizes: [20, 50, 100]
+      }"
       style="background: var(--bg-card); border-radius: var(--radius-lg)"
+      @update:page="histPage = $event"
+      @update:page-size="histPageSize = $event; histPage = 1"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import { NButton, NDataTable, NDatePicker, NInput, NSelect, NSpace } from 'naive-ui'
 import RefreshControl from '../components/RefreshControl.vue'
 import { useRefreshInterval } from '../composables/useRefreshInterval'
@@ -75,7 +82,8 @@ const filterPrefix = ref<string | null>(null)
 const filterSource = ref<string | null>(null)
 const dateRange = ref<[number, number] | null>([Date.now() - 30 * 86400000, Date.now()])
 const allKeys = ref<KvEntry[]>([])
-const pagination = reactive({ pageSize: 50, showSizePicker: true, pageSizes: [20, 50, 100] as number[] })
+const histPage = ref(1)
+const histPageSize = ref(50)
 const refreshInterval = useRefreshInterval()
 
 // 前缀/来源选项（从现有 KV keys 提取）

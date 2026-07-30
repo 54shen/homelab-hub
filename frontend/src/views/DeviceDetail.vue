@@ -201,8 +201,8 @@ onMounted(async () => {
     hbChart = echarts.init(heartbeatChartRef.value)
     hbChart.setOption({
       tooltip: { trigger: 'axis' as const },
-      legend: { data: ['CPU', '内存'], right: 0, textStyle: { fontSize: 11 } },
-      grid: { top: 32, right: 12, bottom: 24, left: 40 },
+      legend: { data: ['CPU', '内存'], top: 0, right: 0, textStyle: { fontSize: 11 } },
+      grid: { top: 12, right: 50, bottom: 24, left: 40, containLabel: true },
       xAxis: { type: 'category' as const, data: [], axisLabel: { fontSize: 10 } },
       yAxis: { type: 'value' as const, max: 100, axisLabel: { fontSize: 10, formatter: '{value}%' } },
       series: [
@@ -243,6 +243,7 @@ onUnmounted(() => { if (timer) clearInterval(timer); hbChart?.dispose() })
 
 <style scoped>
 .back-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--gap-md); }
+.chart-box { width: 100%; height: 220px; overflow: hidden; }
 .detail-hero {
   display: flex; align-items: center; justify-content: space-between;
   background: var(--bg-card); border: 1px solid var(--border-card);
@@ -257,6 +258,4 @@ onUnmounted(() => { if (timer) clearInterval(timer); hbChart?.dispose() })
 .metric-big { font-size: 28px; font-weight: 700; color: var(--text-primary); }
 .metric-big .unit { font-size: 16px; font-weight: 400; color: var(--text-secondary); margin-left: 2px; }
 .metric-big-text { font-size: 20px; font-weight: 600; color: var(--text-primary); }
-
-.chart-box { width: 100%; height: 220px; }
 </style>
