@@ -2,6 +2,8 @@
 
 家庭实验室统一数据中心 —— 连接所有设备、服务、脚本的数据交换平台。
 
+> 本项目由 [DeepSeek-v4-Pro](https://deepseek.com) 和 [Claude Code](https://claude.ai/code) 联合开发
+
 ---
 
 ## 目录
