@@ -2,6 +2,19 @@
   <div class="page-container">
     <h1 class="page-title">设置</h1>
 
+    <!-- 修改密码 -->
+    <n-card title="修改密码" size="small" style="margin-bottom:16px">
+      <n-form label-placement="left" label-width="80px" style="max-width:400px">
+        <n-form-item label="旧密码">
+          <n-input v-model:value="pwForm.oldPassword" type="password" placeholder="输入旧密码" />
+        </n-form-item>
+        <n-form-item label="新密码">
+          <n-input v-model:value="pwForm.newPassword" type="password" placeholder="至少4位" />
+        </n-form-item>
+        <n-button type="primary" size="small" :loading="pwLoading" @click="handleChangePassword">修改密码</n-button>
+      </n-form>
+    </n-card>
+
     <!-- Token 管理 -->
     <n-card title="Token 管理" size="small" style="margin-bottom:16px">
       <template #header-extra>
@@ -101,6 +114,32 @@ import type { DbStatus } from '../types'
 
 const message = useMessage()
 const base = import.meta.env.VITE_API_BASE || '/api'
+
+// ---- 修改密码 ----
+const pwForm = ref({ oldPassword: '', newPassword: '' })
+const pwLoading = ref(false)
+
+async function handleChangePassword() {
+  if (!pwForm.value.oldPassword || !pwForm.value.newPassword) {
+    message.warning('请填写旧密码和新密码'); return
+  }
+  if (pwForm.value.newPassword.length < 4) {
+    message.warning('新密码至少 4 位'); return
+  }
+  pwLoading.value = true
+  try {
+    const username = localStorage.getItem('sc_username') || ''
+    await axios.put(`${base}/auth/password`, {
+      username,
+      old_password: pwForm.value.oldPassword,
+      new_password: pwForm.value.newPassword
+    })
+    message.success('密码已修改，下次登录生效')
+    pwForm.value = { oldPassword: '', newPassword: '' }
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '修改失败')
+  } finally { pwLoading.value = false }
+}
 
 // ---- Token ----
 interface TokenEntry {

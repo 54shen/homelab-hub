@@ -102,23 +102,29 @@ async def auth_middleware(request: Request, call_next):
     token_str = auth_header[7:]
     db = SessionLocal()
     try:
+        # 先查 API Token 表
         token_record = db.query(TokenModel).filter(TokenModel.token == token_str).first()
-        if not token_record:
-            return JSONResponse(status_code=401, content={"detail": "Token 不存在"})
+        # 再查 Web 会话表
+        session_record = db.query(SessionModel).filter(SessionModel.session_token == token_str).first() if not token_record else None
+
+        if not token_record and not session_record:
+            return JSONResponse(status_code=401, content={"detail": "Token 无效"})
+
+        # 确定权限：API Token 或 Session
+        if token_record:
+            permission = token_record.permission
+        else:
+            permission = session_record.permission
 
         # 写操作需要 write/admin
         if request.method in ("POST", "PUT", "DELETE", "PATCH"):
-            if token_record.permission not in ("write", "admin"):
+            if permission not in ("write", "admin"):
                 return JSONResponse(status_code=403, content={"detail": "权限不足（需要 write 或 admin）"})
 
-        # 更新会话活跃时间
-        session = db.query(SessionModel).filter(
-            SessionModel.username == token_record.name,
-            SessionModel.ip == (request.client.host if request.client else "")
-        ).order_by(SessionModel.id.desc()).first()
-        if session:
+        # 更新 Web 会话活跃时间
+        if session_record:
             from datetime import datetime
-            session.last_active = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            session_record.last_active = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             db.commit()
     finally:
         db.close()
@@ -158,33 +164,22 @@ class LoginRequest(PydanticBase):
 
 @app.post("/api/auth/login")
 def login(req: LoginRequest):
-    """前端登录：账号 + 密码"""
+    """Web 登录：账号 + 密码 → 返回会话 Token（仅 Web 有效）"""
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.username == req.username).first()
         if not user or not verify_password(req.password, user.password_hash):
             return JSONResponse(status_code=401, content={"detail": "账号或密码错误"})
 
-        # 查找或创建一个 token 给前端用
-        token_record = db.query(TokenModel).filter(
-            TokenModel.name == f"web-{user.username}"
-        ).first()
-        if not token_record:
-            import uuid
-            token_str = "sk-" + uuid.uuid4().hex
-            token_record = TokenModel(
-                name=f"web-{user.username}",
-                token=token_str,
-                permission=user.permission
-            )
-            db.add(token_record)
-            db.flush()
+        # 生成会话专用 Token（不污染 API Token 表）
+        import uuid
+        session_token = "ws-" + uuid.uuid4().hex
 
-        # 创建会话记录
         session = SessionModel(
             user_id=user.id,
             username=user.username,
             permission=user.permission,
+            session_token=session_token,
             ip="",
             user_agent=""
         )
@@ -195,8 +190,32 @@ def login(req: LoginRequest):
             "success": True,
             "username": user.username,
             "permission": user.permission,
-            "token": token_record.token
+            "token": session_token
         }
+    finally:
+        db.close()
+
+
+class PasswordChangeRequestV2(PydanticBase):
+    username: str
+    old_password: str
+    new_password: str
+
+@app.put("/api/auth/password")
+def change_password(req: PasswordChangeRequestV2):
+    """修改密码：验证旧密码后更新"""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == req.username).first()
+        if not user or not verify_password(req.old_password, user.password_hash):
+            return JSONResponse(status_code=401, content={"detail": "旧密码错误"})
+
+        if len(req.new_password) < 4:
+            return JSONResponse(status_code=400, content={"detail": "新密码至少 4 位"})
+
+        user.password_hash = hash_password(req.new_password)
+        db.commit()
+        return {"success": True, "message": "密码已修改"}
     finally:
         db.close()
 

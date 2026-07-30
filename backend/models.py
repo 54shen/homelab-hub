@@ -81,7 +81,7 @@ class Token(Base):
     created_at = Column(String(32), default=_now)
 
 
-# ---- 登录会话表 ----
+# ---- 登录会话表（Web 会话 Token，与 API Token 隔离） ----
 class Session(Base):
     __tablename__ = "sessions"
 
@@ -89,6 +89,7 @@ class Session(Base):
     user_id = Column(Integer, nullable=False)
     username = Column(String(64), default="")
     permission = Column(String(32), default="")
+    session_token = Column(String(256), nullable=False, unique=True)  # Web 会话专用
     ip = Column(String(45), default="")
     user_agent = Column(String(256), default="")
     created_at = Column(String(32), default=_now)
