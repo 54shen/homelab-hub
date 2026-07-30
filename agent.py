@@ -376,44 +376,45 @@ class Agent:
             })
 
         # 基础信息
-        add("hostname", sys_info["hostname"])
-        add("os", sys_info["os"])
-        add("os_version", sys_info["os_release"])
-        add("architecture", sys_info["architecture"])
-        add("ip", sys_info["ip"])
-        add("mac", sys_info["mac"])
-        add("uptime", sys_info["uptime"])
+        add("主机名", sys_info["hostname"])
+        add("操作系统", sys_info["os"])
+        add("系统版本", sys_info["os_release"])
+        add("系统架构", sys_info["architecture"])
+        add("IP地址", sys_info["ip"])
+        add("MAC地址", sys_info["mac"])
+        add("运行时长", sys_info["uptime"])
 
         # 资源使用率
         if sys_info["cpu"] is not None:
-            add("cpu", sys_info["cpu"], typ="int")
+            add("CPU使用率", sys_info["cpu"], typ="int")
         if sys_info["memory"] is not None:
-            add("memory", sys_info["memory"], typ="int")
+            add("内存使用率", sys_info["memory"], typ="int")
         if sys_info["disk"] is not None:
-            add("disk", sys_info["disk"], typ="int")
+            add("磁盘使用率", sys_info["disk"], typ="int")
 
         # 硬件信息
         if sys_info["cpu_count"]:
-            add("cpu_count", sys_info["cpu_count"], typ="int")
+            add("CPU核心数", sys_info["cpu_count"], typ="int")
         if sys_info["memory_total_gb"]:
-            add("memory_total_gb", sys_info["memory_total_gb"], typ="float")
+            add("内存总量_GB", sys_info["memory_total_gb"], typ="float")
         if sys_info["disk_total_gb"]:
-            add("disk_total_gb", sys_info["disk_total_gb"], typ="float")
+            add("磁盘总量_GB", sys_info["disk_total_gb"], typ="float")
 
         # 其他
         if sys_info.get("process_count"):
-            add("process_count", sys_info["process_count"], typ="int")
+            add("进程数", sys_info["process_count"], typ="int")
         if sys_info.get("net_sent_mb"):
-            add("net_sent_mb", sys_info["net_sent_mb"], typ="float")
+            add("网络发送_MB", sys_info["net_sent_mb"], typ="float")
         if sys_info.get("net_recv_mb"):
-            add("net_recv_mb", sys_info["net_recv_mb"], typ="float")
+            add("网络接收_MB", sys_info["net_recv_mb"], typ="float")
         if sys_info.get("boot_time"):
-            add("boot_time", sys_info["boot_time"])
+            add("启动时间", sys_info["boot_time"])
 
         # 温度
         for k, v in sys_info.items():
             if k.startswith("temp_"):
-                add(k, v, typ="int")
+                # 例如 temp_coretemp → 温度_coretemp
+                add(f"温度_{k[5:]}", v, typ="int")
 
         # 每次仅上报变化的（批量写入已有值的会自然覆盖）
         for item in kv_items:
