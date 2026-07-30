@@ -24,5 +24,18 @@ def get_db():
 
 
 def init_db():
-    """初始化数据库表"""
+    """初始化数据库表（含自动迁移）"""
     Base.metadata.create_all(bind=engine)
+    _migrate()
+
+
+def _migrate():
+    """自动处理新增字段，避免手动 ALTER TABLE"""
+    import sqlalchemy
+    with engine.connect() as conn:
+        # webhooks.body (v1.x → v2.0)
+        try:
+            conn.execute(sqlalchemy.text("ALTER TABLE webhooks ADD COLUMN body TEXT DEFAULT ''"))
+            conn.commit()
+        except Exception:
+            pass  # 字段已存在

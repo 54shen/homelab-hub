@@ -9,6 +9,7 @@ from models import WebhookConfig
 from schemas import WebhookCreate, WebhookUpdate, WebhookOut, ApiResponse
 from auth import auth_write
 import httpx
+import json
 
 router = APIRouter(prefix="/api", tags=["Webhook"])
 
@@ -46,6 +47,26 @@ def delete_webhook(webhook_id: int, db: Session = Depends(get_db), token=Depends
     return ApiResponse(success=True, message="已删除")
 
 
+def _build_payload(wh: WebhookConfig, event: str, event_data: dict | None = None) -> dict:
+    """构建 Webhook 请求体，使用自定义 Body 模板"""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    default = {"event": event, "webhook": wh.name, "timestamp": now_str}
+
+    if wh.body and wh.body.strip():
+        try:
+            body_str = wh.body
+            # 模板替换
+            body_str = body_str.replace("{{event}}", event)
+            body_str = body_str.replace("{{timestamp}}", now_str)
+            body_str = body_str.replace("{{webhook}}", wh.name)
+            if event_data:
+                body_str = body_str.replace("{{data}}", json.dumps(event_data, ensure_ascii=False))
+            return json.loads(body_str)
+        except json.JSONDecodeError:
+            pass  # Body 不是合法 JSON，退回默认
+    return default
+
+
 @router.post("/webhooks/{webhook_id}/test", response_model=ApiResponse)
 async def test_webhook(webhook_id: int, db: Session = Depends(get_db), token=Depends(auth_write)):
     wh = db.query(WebhookConfig).filter(WebhookConfig.id == webhook_id).first()
@@ -56,7 +77,8 @@ async def test_webhook(webhook_id: int, db: Session = Depends(get_db), token=Dep
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             method = wh.method.upper()
-            payload = {"event": "test", "webhook": wh.name, "timestamp": now_str}
+            payload = _build_payload(wh, "test")
+
             if method == "GET":
                 resp = await client.get(wh.url, headers=wh.headers, params=payload)
             elif method == "PUT":

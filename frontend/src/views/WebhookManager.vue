@@ -70,6 +70,30 @@
         <n-form-item label="Headers">
           <n-input v-model:value="headersText" type="textarea" placeholder='{"Content-Type": "application/json"}' :autosize="{ minRows: 2, maxRows: 4 }" />
         </n-form-item>
+        <n-form-item label="Body">
+          <n-input v-model:value="bodyText" type="textarea"
+            placeholder="留空 = 默认格式 {&quot;event&quot;:&quot;...&quot;,&quot;webhook&quot;:&quot;...&quot;,&quot;timestamp&quot;:&quot;...&quot;}"
+            :autosize="{ minRows: 6, maxRows: 14 }"
+          />
+          <template #feedback>
+            <div class="body-help">
+              <span class="body-help-title">模板变量：</span>
+              <code>{<!-- -->{event}}</code> 事件类型
+              <code>{<!-- -->{timestamp}}</code> 时间戳
+              <code>{<!-- -->{webhook}}</code> Webhook名称
+              <code>{<!-- -->{data}}</code> 事件数据JSON
+            </div>
+            <div class="body-help" style="margin-top:4px">
+              <span class="body-help-title">示例：</span>
+              <n-button text size="tiny" type="primary" @click="setBodyExample('feishu')">飞书</n-button>
+              <n-button text size="tiny" type="primary" @click="setBodyExample('wecom')">企微</n-button>
+              <n-button text size="tiny" type="primary" @click="setBodyExample('dingtalk')">钉钉</n-button>
+              <n-button text size="tiny" type="primary" @click="setBodyExample('bark')">Bark</n-button>
+              <n-button text size="tiny" type="primary" @click="setBodyExample('pushdeer')">PushDeer</n-button>
+              <n-button text size="tiny" type="primary" @click="setBodyExample('clear')">清空</n-button>
+            </div>
+          </template>
+        </n-form-item>
       </n-form>
       <template #footer>
         <n-space justify="end">
@@ -95,10 +119,11 @@ const webhooks = ref<WebhookConfig[]>([])
 const modalVisible = ref(false)
 const editingId = ref<number | null>(null)
 const headersText = ref('')
+const bodyText = ref('')
 
 const defaultForm = () => ({
   name: '', url: '', method: 'POST' as WebhookConfig['method'],
-  event_types: [] as string[], headers: {} as Record<string, string>
+  event_types: [] as string[], headers: {} as Record<string, string>, body: ''
 })
 const form = ref(defaultForm())
 
@@ -129,6 +154,7 @@ function openCreate() {
   editingId.value = null
   form.value = defaultForm()
   headersText.value = ''
+  bodyText.value = ''
   modalVisible.value = true
 }
 
@@ -136,16 +162,17 @@ function openEdit(w: WebhookConfig) {
   editingId.value = w.id
   form.value = {
     name: w.name, url: w.url, method: w.method,
-    event_types: [...w.event_types], headers: { ...w.headers }
+    event_types: [...w.event_types], headers: { ...w.headers }, body: w.body || ''
   }
   headersText.value = JSON.stringify(w.headers, null, 2)
+  bodyText.value = w.body || ''
   modalVisible.value = true
 }
 
 async function handleSave() {
   if (!form.value.name || !form.value.url) return
   try {
-    const data = { ...form.value, headers: headersParsed.value }
+    const data = { ...form.value, headers: headersParsed.value, body: bodyText.value }
     if (editingId.value) {
       await webhookApi.update(editingId.value, data)
     } else {
@@ -184,6 +211,43 @@ async function loadData() {
     const res = await webhookApi.list()
     if (res.data) webhooks.value = res.data
   } catch { webhooks.value = [] }
+}
+
+// ---- Body 预设示例 ----
+const BODY_EXAMPLES: Record<string, string> = {
+  feishu: JSON.stringify({
+    msg_type: "interactive",
+    card: {
+      header: { title: { tag: "plain_text", content: "Shared Center 通知" } },
+      elements: [
+        { tag: "div", text: { tag: "lark_md", content: "**事件：**{{event}}\n**时间：**{{timestamp}}\n**详情：**{{data}}" } }
+      ]
+    }
+  }, null, 2),
+  wecom: JSON.stringify({
+    msgtype: "markdown",
+    markdown: { content: `## Shared Center 通知\n> 事件：<font color="info">{{event}}</font>\n> 时间：{{timestamp}}\n> 详情：{{data}}` }
+  }, null, 2),
+  dingtalk: JSON.stringify({
+    msgtype: "markdown",
+    markdown: { title: "Shared Center", text: `### 通知\n- 事件：{{event}}\n- 时间：{{timestamp}}\n- 详情：{{data}}` }
+  }, null, 2),
+  bark: JSON.stringify({
+    title: "Shared Center",
+    body: "事件：{{event}}\n时间：{{timestamp}}\n详情：{{data}}",
+    group: "SharedCenter",
+    sound: "bell"
+  }, null, 2),
+  pushdeer: JSON.stringify({
+    text: "Shared Center",
+    desp: `### 通知\n\n**事件：**{{event}}\n\n**时间：**{{timestamp}}\n\n**详情：**\n\`\`\`json\n{{data}}\n\`\`\``,
+    type: "markdown"
+  }, null, 2),
+  clear: ""
+}
+
+function setBodyExample(key: string) {
+  bodyText.value = BODY_EXAMPLES[key] || ''
 }
 
 onMounted(loadData)
@@ -264,5 +328,22 @@ onMounted(loadData)
 .fail-count {
   color: var(--color-danger);
   font-weight: 600;
+}
+
+.body-help {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.8;
+}
+.body-help code {
+  background: #F1F5F9;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  margin-right: 6px;
+}
+.body-help-title {
+  font-weight: 600;
+  margin-right: 4px;
 }
 </style>

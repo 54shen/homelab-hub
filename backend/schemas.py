@@ -174,6 +174,7 @@ class WebhookCreate(BaseModel):
     url: str
     method: str = "POST"
     headers: dict = {}
+    body: str = ""
     event_types: list[str] = []
 
 
@@ -182,6 +183,7 @@ class WebhookUpdate(BaseModel):
     url: Optional[str] = None
     method: Optional[str] = None
     headers: Optional[dict] = None
+    body: Optional[str] = None
     event_types: Optional[list[str]] = None
     enabled: Optional[bool] = None
 
@@ -192,6 +194,7 @@ class WebhookOut(BaseModel):
     url: str
     method: str
     headers: dict
+    body: str
     event_types: list[str]
     enabled: bool
     last_sent: Optional[str]

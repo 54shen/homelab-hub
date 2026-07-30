@@ -111,6 +111,7 @@ export interface WebhookConfig {
   url: string
   method: 'GET' | 'POST' | 'PUT'
   headers: Record<string, string>
+  body: string
   event_types: string[]
   enabled: boolean
   last_sent: string | null

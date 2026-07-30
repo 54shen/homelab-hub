@@ -122,6 +122,7 @@ class WebhookConfig(Base):
     url = Column(String(512), nullable=False)
     method = Column(String(8), default="POST")
     headers = Column(JSON, default=dict)
+    body = Column(Text, default="")
     event_types = Column(JSON, default=list)
     enabled = Column(Boolean, default=True)
     last_sent = Column(String(32), nullable=True)
