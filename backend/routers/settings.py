@@ -3,9 +3,10 @@
 # ============================================================
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from pydantic import BaseModel as PydanticBase
 from sqlalchemy.orm import Session
 from database import get_db
-from models import KvEntry, KvHistory, Device, User, Token as TokenModel, Session as SessionModel, WebhookConfig, AlertRule, SystemLog
+from models import KvEntry, KvHistory, Device, User, Token as TokenModel, Session as SessionModel, WebhookConfig, AlertRule, SystemLog, UISetting
 from schemas import SystemConfigUpdate, ApiResponse
 from auth import auth_write
 from config import DEFAULT_RETENTION_DAYS
@@ -174,4 +175,27 @@ def save_system_config(cfg: SystemConfigUpdate, db: Session = Depends(get_db), t
         config.DEFAULT_RETENTION_DAYS = cfg.default_retention_days  # type: ignore
     if cfg.heartbeat_timeout_seconds is not None:
         config.HEARTBEAT_TIMEOUT_SECONDS = cfg.heartbeat_timeout_seconds  # type: ignore
+    return ApiResponse(success=True, message="已保存")
+
+
+# ---- UI 设置（跨终端同步） ----
+class UISettingsPayload(PydanticBase):
+    settings: dict  # { key: value, ... }
+
+@router.get("/settings/ui")
+def get_ui_settings(db: Session = Depends(get_db)):
+    """获取所有 UI 设置"""
+    rows = db.query(UISetting).all()
+    return {r.key: r.value for r in rows}
+
+@router.put("/settings/ui", response_model=ApiResponse)
+def save_ui_settings(payload: UISettingsPayload, db: Session = Depends(get_db)):
+    """批量保存 UI 设置"""
+    for k, v in payload.settings.items():
+        entry = db.query(UISetting).filter(UISetting.key == k).first()
+        if entry:
+            entry.value = str(v)
+        else:
+            db.add(UISetting(key=k, value=str(v)))
+    db.commit()
     return ApiResponse(success=True, message="已保存")

@@ -45,3 +45,15 @@ def _migrate():
             conn.commit()
         except Exception:
             pass
+        # ui_settings (v2.2)
+        try:
+            conn.execute(sqlalchemy.text("""
+                CREATE TABLE IF NOT EXISTS ui_settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT UNIQUE NOT NULL,
+                    value TEXT DEFAULT ''
+                )
+            """))
+            conn.commit()
+        except Exception:
+            pass

@@ -62,7 +62,7 @@
       }"
       style="background: var(--bg-card); border-radius: var(--radius-lg)"
       @update:page="histPage = $event"
-      @update:page-size="histPageSize = $event; histPage = 1"
+      @update:page-size="histPageSize = $event"
     />
   </div>
 </template>

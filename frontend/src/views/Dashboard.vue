@@ -105,7 +105,7 @@ function startTimer(sec: number) {
   if (timer) { clearInterval(timer); timer = null }
   if (sec > 0) timer = setInterval(loadData, sec * 1000)
 }
-watch(refreshInterval, startTimer)
+watch(refreshInterval, startTimer, { immediate: true })
 
 const cpuChartRef = ref<HTMLElement | null>(null)
 const memChartRef = ref<HTMLElement | null>(null)

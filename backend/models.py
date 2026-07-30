@@ -130,6 +130,15 @@ class WebhookConfig(Base):
     fail_count = Column(Integer, default=0)
 
 
+# ---- 用户界面设置表（跨终端同步） ----
+class UISetting(Base):
+    __tablename__ = "ui_settings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(128), unique=True, nullable=False, index=True)
+    value = Column(Text, default="")
+
+
 # ---- 系统日志表 ----
 class SystemLog(Base):
     __tablename__ = "system_logs"

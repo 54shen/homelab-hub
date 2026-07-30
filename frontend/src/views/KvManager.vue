@@ -94,7 +94,7 @@
       }"
       style="background: var(--bg-card); border-radius: var(--radius-lg)"
       @update:page="kvPage = $event"
-      @update:page-size="kvPageSize = $event; kvPage = 1"
+      @update:page-size="kvPageSize = $event"
       @update:checked-row-keys="handleCheck"
     />
 
@@ -331,7 +331,7 @@ function startTimer(sec: number) {
   if (timer) { clearInterval(timer); timer = null }
   if (sec > 0) timer = setInterval(loadData, sec * 1000)
 }
-watch(refreshInterval, startTimer)
+watch(refreshInterval, startTimer, { immediate: true })
 
 onMounted(loadData)
 onUnmounted(() => { if (timer) clearInterval(timer) })
