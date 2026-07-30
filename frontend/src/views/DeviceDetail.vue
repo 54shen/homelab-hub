@@ -19,20 +19,22 @@
               <p class="hero-sub">{{ device.hostname || device.id }}</p>
             </div>
             <StatusBadge :online="device.online" style="margin-left:12px" />
-            <input
+            <span
               v-if="editingTimeout"
+              class="timeout-tag"
+              @click.stop
+            >⏱<input
               ref="timeoutInputRef"
               v-model="timeoutInput"
-              class="timeout-input"
+              class="timeout-input-inline"
               @keydown.enter="saveTimeout()"
               @blur="editingTimeout = false"
-              @click.stop
-            />
+            />s</span>
             <span
               v-else
               class="timeout-tag"
               @click.stop="startTimeoutEdit()"
-            >⏱{{ device.heartbeat_timeout || 180 }}s</span>
+            >⏱{{ device.heartbeat_timeout }}s</span>
           </div>
           <n-tag size="small" :bordered="false" round>{{ device.group || '默认' }}</n-tag>
         </div>
@@ -186,7 +188,7 @@ const refreshInterval = useRefreshInterval()
 
 function startTimeoutEdit() {
   editingTimeout.value = true
-  timeoutInput.value = String(device.value?.heartbeat_timeout || 180)
+  timeoutInput.value = device.value?.heartbeat_timeout != null ? String(device.value.heartbeat_timeout) : ''
   setTimeout(() => timeoutInputRef.value?.focus(), 50)
 }
 
@@ -294,10 +296,13 @@ onUnmounted(() => {
   transition: all 0.15s; font-weight: 500;
 }
 .timeout-tag:hover { background: #FFE0B2; }
-.timeout-input {
-  width: 60px; font-size: 12px; padding: 3px 8px; background: #FFF3E0; color: #E65100;
-  border: 1px solid var(--color-primary); border-radius: 10px;
-  text-align: center; outline: none; background: #fff; color: var(--text-primary);
+.timeout-input-inline {
+  width: 48px; font-size: 12px; padding: 0 4px;
+  border: none; border-bottom: 1.5px dashed #E65100;
+  border-radius: 4px;
+  text-align: center; outline: none;
+  background: rgba(255,255,255,0.6); color: #E65100;
+  font-weight: 500; font-family: inherit;
 }
 .detail-hero {
   display: flex; align-items: center; justify-content: space-between;
