@@ -23,19 +23,25 @@ const http = axios.create({
   headers: { 'Content-Type': 'application/json' }
 })
 
-// 请求拦截：附加 Token
+// 请求拦截：自动附加 Token（所有请求）
 http.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('sc_token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
-// 响应拦截：统一错误处理
+// 响应拦截：401 自动跳登录
 http.interceptors.response.use(
   (res) => res,
   (err) => {
-    const msg = err.response?.data?.message || err.message || '请求失败'
-    console.error('[API Error]', msg)
+    if (err.response?.status === 401) {
+      localStorage.removeItem('sc_token')
+      localStorage.removeItem('sc_username')
+      localStorage.removeItem('sc_permission')
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
+    }
     return Promise.reject(err)
   }
 )

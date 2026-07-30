@@ -91,7 +91,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import {
   NButton, NButtonGroup, NDataTable, NEmpty, NSelect, NSpace, NTag
 } from 'naive-ui'
@@ -125,7 +125,7 @@ const columns = [
   {
     title: '状态', key: 'online', width: 80,
     render(row: Device) {
-      return h => h(StatusBadge, { online: row.online })
+      return h(StatusBadge, { online: row.online })
     }
   }
 ]

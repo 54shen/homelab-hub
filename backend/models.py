@@ -64,10 +64,26 @@ class Token(Base):
     __tablename__ = "tokens"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(64), default="")
     name = Column(String(128), unique=True, nullable=False)
     token = Column(String(256), nullable=False)
     permission = Column(String(32), default="read")  # read / write / admin
     created_at = Column(String(32), default=_now)
+
+
+# ---- 登录会话表 ----
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    token_id = Column(Integer, nullable=False)
+    username = Column(String(64), default="")
+    token_name = Column(String(128), default="")
+    permission = Column(String(32), default="")
+    ip = Column(String(45), default="")
+    user_agent = Column(String(256), default="")
+    created_at = Column(String(32), default=_now)
+    last_active = Column(String(32), default=_now)
 
 
 # ---- 告警规则表 ----

@@ -82,7 +82,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import {
   NButton, NDataTable, NInput, NModal, NForm, NFormItem,
   NSelect, NInputNumber, NSpace, NPopconfirm, NUpload, useMessage
@@ -136,7 +136,7 @@ const columns = [
   {
     title: '操作', key: 'actions', width: 160,
     render(row: KvEntry) {
-      return h => [
+      return h('div', { style: 'display:flex;gap:4px' }, [
         h(NButton, { size: 'tiny', quaternary: true, onClick: () => openEditModal(row) }, { default: () => '编辑' }),
         h(NPopconfirm, {
           onPositiveClick: () => handleDelete(row.key)
@@ -144,7 +144,7 @@ const columns = [
           trigger: () => h(NButton, { size: 'tiny', quaternary: true, type: 'error' }, { default: () => '删除' }),
           default: () => '确定删除？此操作不可撤销'
         })
-      ]
+      ])
     }
   }
 ]

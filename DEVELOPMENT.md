@@ -1060,39 +1060,75 @@ POST /device/heartbeat
 
 # 11. 安全设计
 
-## API Token
+## 11.1 认证规则
 
-每个设备独立：
+| 操作类型 | 认证要求 | 最低权限 |
+|----------|:--------:|:--------:|
+| GET 读 | ✅ 必须 Token | `read` |
+| POST/PUT/DELETE 写 | ✅ 必须 Token | `write` |
+| `/api/health` `/docs` `/ws` | ❌ 公开 | — |
 
-```
-windows-token
+## 11.2 Token 结构
 
-ha-token
-
-qinglong-token
-```
-
----
-
-权限：
-
-读取：
-
-```
-read
+```sql
+tokens 表:
+  id          INTEGER PK
+  username    TEXT      -- 登录账号（前端登录用）
+  name        TEXT      -- 备注名（如 "Windows Agent"）
+  token       TEXT      -- Token 字符串
+  permission  TEXT      -- read / write / admin
+  created_at  TEXT
 ```
 
-写入：
+每个设备/用户独立 Token，通过权限控制能力范围。
+
+权限分级：
+
+| 权限 | 能力 |
+|------|------|
+| `read` | 仅读取数据，适用于 Dashboard / 监控脚本 |
+| `write` | 读写数据，适用于设备 Agent / 自动化脚本 |
+| `admin` | 全部权限 + 管理 Token / 会话，适用于管理员 |
+
+## 11.3 前端登录
 
 ```
-write
+打开网页 → 登录页（username + token）
+         → POST /api/auth/login 验证
+         → 存入 localStorage
+         → 路由守卫：未登录 → 强制跳转登录页
+         → 进入仪表盘
 ```
 
-管理：
+## 11.4 会话管理
 
+新增 `sessions` 表：
+
+```sql
+sessions 表:
+  id          INTEGER PK
+  token_id    INTEGER   -- 关联 tokens.id
+  username    TEXT
+  ip          TEXT      -- 登录 IP
+  user_agent  TEXT      -- 浏览器标识
+  created_at  TEXT      -- 登录时间
+  last_active TEXT      -- 最后活跃时间
 ```
-admin
-```
+
+功能：
+- 前端设置页展示所有活跃会话（谁 / 从哪里 / 什么时候登录）
+- admin 权限可踢掉任意会话
+- 后端中间件每次请求更新 `last_active`
+
+## 11.5 前端 Token 管理
+
+设置页完整管理：
+
+- 列表：用户名 / 备注名 / 权限 / 创建时间 / 最近活跃
+- 新增：生成随机 Token + 设置用户名/权限
+- 编辑：修改用户名、备注名、权限
+- 删除：删除 Token（立即生效，对应会话失效）
+- 复制：一键复制 Token 字符串
 
 ---
 
@@ -1312,6 +1348,36 @@ AI
 | 10:00 | 菜单切换后页面空白 | `<transition mode="out-in">` + Naive UI 组件渲染冲突，新组件未触发进入动画 | `<router-view>` 加 `:key="$route.fullPath"` 强制重渲染 |
 | 10:00 | 设备卡片点击无跳转 | 只有 Drawer 抽屉，无独立路由 | 新增 `/devices/:id` 路由 + 设备详情页 |
 | 10:00 | Token 硬编码 | 后端 SECRET_KEY / 前端 baseURL / SDK base_url 全部写死 | 三层统一支持环境变量 |
+| 16:00 | 前端操作列显示代码 | render 返回 `h => [...]` 而非直接 VNode | 导入 `h`，直接 `return h('div', ...)` |
+| 16:30 | GET 无需 Token 太不安全 | 中间件只拦截写操作 | 改为全部操作需 Token，读=read 写=write |
+| 17:00 | Token 无用户关联 | tokens 表缺 username | 加 username 字段 + 登录 API + 前端登录页 |
+| 17:30 | 缺少会话管理 | 无登录记录和踢人功能 | sessions 表 + 设置页会话列表 + 踢掉功能 |
+
+## 2026-07-30 — 认证升级 + UI 修复
+
+### 后端
+
+| 时间 | 内容 |
+|------|------|
+| 16:00 | Token 表新增 username 字段 |
+| 16:10 | 新增 sessions 会话表 |
+| 16:20 | 中间件改为全部请求（含 GET）需 Token 认证 |
+| 16:30 | `POST /api/auth/login` 登录 API |
+| 16:40 | `GET/DELETE /api/sessions` 会话管理 API |
+| 16:50 | `GET/POST/PUT/DELETE /api/tokens` Token CRUD API |
+| 17:00 | 登录时创建会话记录，中间件更新 last_active |
+
+### 前端
+
+| 时间 | 内容 |
+|------|------|
+| 16:00 | 修复 KvManager / DeviceManager / Settings 操作列渲染 Bug |
+| 16:20 | 新增 Login.vue 登录页面 |
+| 16:30 | 路由守卫：未登录强制跳转 /login |
+| 16:40 | AppTopbar 显示用户名 + 退出按钮 |
+| 16:50 | API 拦截器自动带 Token + 401 自动跳登录 |
+| 17:00 | Settings 页 Token 管理增强（用户名/权限/编辑/删除/复制） |
+| 17:10 | Settings 页新增活跃会话列表 + 踢掉功能 |
 
 ---
 

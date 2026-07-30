@@ -4,22 +4,34 @@
       <span class="topbar-title">{{ pageTitle }}</span>
     </div>
     <div class="topbar-right">
+      <span class="topbar-username">{{ username }}</span>
       <span class="topbar-indicator">
         <span class="status-dot" :class="wsConnected ? 'online' : 'offline'"></span>
-        {{ wsConnected ? 'WS 已连接' : 'WS 未连接' }}
+        {{ wsConnected ? 'WS' : 'WS 断开' }}
       </span>
       <span class="topbar-time">{{ currentTime }}</span>
+      <n-button text size="tiny" type="error" @click="handleLogout">退出</n-button>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { NButton } from 'naive-ui'
 import { wsConnected } from '../composables/useWebSocket'
 
 const route = useRoute()
+const router = useRouter()
 const currentTime = ref('')
+const username = ref(localStorage.getItem('sc_username') || '')
+
+function handleLogout() {
+  localStorage.removeItem('sc_username')
+  localStorage.removeItem('sc_token')
+  localStorage.removeItem('sc_permission')
+  router.replace('/login')
+}
 
 let timer: ReturnType<typeof setInterval>
 
@@ -64,7 +76,8 @@ onUnmounted(() => {
 }
 .topbar-left { display: flex; align-items: center; }
 .topbar-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
-.topbar-right { display: flex; align-items: center; gap: 20px; }
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+.topbar-username { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .topbar-indicator {
   font-size: 12px; color: var(--text-secondary);
   display: flex; align-items: center; gap: 6px;

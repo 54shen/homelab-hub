@@ -7,6 +7,12 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     {
+      path: '/login',
+      name: 'Login',
+      component: () => import('../views/Login.vue'),
+      meta: { title: '登录', public: true }
+    },
+    {
       path: '/',
       component: () => import('../layouts/MainLayout.vue'),
       redirect: '/dashboard',
@@ -68,6 +74,18 @@ const router = createRouter({
       ]
     }
   ]
+})
+
+// ---- 路由守卫：未登录强制跳转登录页 ----
+router.beforeEach((to, _from, next) => {
+  const token = localStorage.getItem('sc_token')
+  if (to.meta.public) {
+    next()
+  } else if (!token) {
+    next('/login')
+  } else {
+    next()
+  }
 })
 
 export default router
