@@ -109,11 +109,10 @@ import {
   NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSpace, useMessage
 } from 'naive-ui'
 import { dashboardApi, settingsApi } from '../api'
-import axios from 'axios'
+import http from '../api'
 import type { DbStatus } from '../types'
 
 const message = useMessage()
-const base = import.meta.env.VITE_API_BASE || '/api'
 
 // ---- 修改密码 ----
 const pwForm = ref({ oldPassword: '', newPassword: '' })
@@ -129,7 +128,7 @@ async function handleChangePassword() {
   pwLoading.value = true
   try {
     const username = localStorage.getItem('sc_username') || ''
-    await axios.put(`${base}/auth/password`, {
+    await http.put('/auth/password', {
       username,
       old_password: pwForm.value.oldPassword,
       new_password: pwForm.value.newPassword
@@ -190,13 +189,13 @@ function openTokenEdit(row: TokenEntry) {
 async function handleTokenSave() {
   try {
     if (editingTokenId.value) {
-      await axios.put(`${base}/tokens/${editingTokenId.value}`, {
+      await http.put(`/tokens/${editingTokenId.value}`, {
         name: tokenForm.value.name,
         permission: tokenForm.value.permission
       })
       message.success('已更新')
     } else {
-      const resp = await axios.post(`${base}/tokens`, {
+      const resp = await http.post('/tokens', {
         name: tokenForm.value.name,
         permission: tokenForm.value.permission
       })
@@ -212,7 +211,7 @@ async function handleTokenSave() {
 
 async function handleTokenDelete(id: number) {
   try {
-    await axios.delete(`${base}/tokens/${id}`)
+    await http.delete(`/tokens/${id}`)
     message.success('已删除')
     await loadTokens()
   } catch { message.error('删除失败') }
@@ -225,7 +224,7 @@ function copyToken() {
 
 async function loadTokens() {
   try {
-    const resp = await axios.get(`${base}/tokens`)
+    const resp = await http.get('/tokens')
     tokens.value = resp.data
   } catch { tokens.value = [] }
 }
@@ -252,7 +251,7 @@ const sessionColumns = [
 
 async function handleKickSession(id: number) {
   try {
-    await axios.delete(`${base}/sessions/${id}`)
+    await http.delete(`/sessions/${id}`)
     message.success('已踢掉')
     await loadSessions()
   } catch { message.error('操作失败') }
@@ -260,7 +259,7 @@ async function handleKickSession(id: number) {
 
 async function loadSessions() {
   try {
-    const resp = await axios.get(`${base}/sessions`)
+    const resp = await http.get('/sessions')
     sessions.value = resp.data
   } catch { sessions.value = [] }
 }
