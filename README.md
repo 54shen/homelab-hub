@@ -495,6 +495,7 @@ service.xxx.version → 1.2.0
 家庭服务中枢/
 ├── README.md                     # 项目说明（本文档）
 ├── DEVELOPMENT.md                # 开发设计文档 + 变更日志
+├── PYTHON_API.md                 # Python 调用完全指南
 │
 ├── backend/                      # 后端 (FastAPI + SQLite)
 │   ├── main.py                   # 入口 + 调度器 + WebSocket
