@@ -89,6 +89,7 @@ import StatCard from '../components/StatCard.vue'
 import RefreshControl from '../components/RefreshControl.vue'
 import { dashboardApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
+import { useRefreshInterval } from '../composables/useRefreshInterval'
 import type { DashboardStats, KvHistory } from '../types'
 
 const stats = ref<DashboardStats>({
@@ -96,8 +97,7 @@ const stats = ref<DashboardStats>({
   running_services: 0, network_status: 'offline', public_ip: '--', system_health: 100
 })
 const recentChanges = ref<KvHistory[]>([])
-const envInterval = parseFloat(import.meta.env.VITE_REFRESH_INTERVAL || '0')
-const refreshInterval = ref(isNaN(envInterval) ? 0 : envInterval)
+const refreshInterval = useRefreshInterval()
 
 // ---- 定时刷新 ----
 let timer: ReturnType<typeof setInterval> | null = null

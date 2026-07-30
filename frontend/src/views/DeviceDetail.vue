@@ -96,6 +96,7 @@ import {
 import * as echarts from 'echarts'
 import StatusBadge from '../components/StatusBadge.vue'
 import RefreshControl from '../components/RefreshControl.vue'
+import { useRefreshInterval } from '../composables/useRefreshInterval'
 import { deviceApi } from '../api'
 import type { Device, KvEntry } from '../types'
 
@@ -124,8 +125,7 @@ function iconForType(type: string): string {
   return map[type] || '📡'
 }
 
-const envInterval = parseFloat(import.meta.env.VITE_REFRESH_INTERVAL || '0')
-const refreshInterval = ref(isNaN(envInterval) ? 0 : envInterval)
+const refreshInterval = useRefreshInterval()
 
 async function loadData() {
   loading.value = true
