@@ -238,7 +238,14 @@ onMounted(async () => {
   })
 })
 
-onUnmounted(() => { if (timer) clearInterval(timer); hbChart?.dispose() })
+function onResize() { hbChart?.resize() }
+window.addEventListener('resize', onResize)
+
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+  window.removeEventListener('resize', onResize)
+  hbChart?.dispose()
+})
 </script>
 
 <style scoped>
