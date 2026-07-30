@@ -44,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { h, onMounted, ref, watch } from 'vue'
 import { NButton, NDataTable, NDatePicker, NInput } from 'naive-ui'
 import { historyApi } from '../api'
 import type { KvHistory } from '../types'
@@ -70,9 +70,9 @@ const columns = [
     width: 220,
     render(row: KvHistory) {
       if (!row.old_value) {
-        return h => h('span', { class: 'tag-new' }, '(新增) ') + row.new_value
+        return [h('span', { class: 'tag-new' }, '(新增) '), h('span', row.new_value)]
       }
-      return h => [
+      return [
         h('span', { class: 'old-val' }, row.old_value),
         h('span', { class: 'arrow' }, ' → '),
         h('span', { class: 'new-val' }, row.new_value)

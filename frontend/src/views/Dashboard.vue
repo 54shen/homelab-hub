@@ -1,6 +1,9 @@
 <template>
   <div class="page-container">
-    <h1 class="page-title">仪表盘</h1>
+    <div class="page-title-row">
+      <h1 class="page-title">仪表盘</h1>
+      <RefreshControl v-model="refreshInterval" />
+    </div>
 
     <!-- 统计卡片 -->
     <div class="card-grid">
@@ -79,10 +82,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, nextTick } from 'vue'
+import { onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
 import { NCard, NEmpty } from 'naive-ui'
 import * as echarts from 'echarts'
 import StatCard from '../components/StatCard.vue'
+import RefreshControl from '../components/RefreshControl.vue'
 import { dashboardApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
 import type { DashboardStats, KvHistory } from '../types'
@@ -92,6 +96,15 @@ const stats = ref<DashboardStats>({
   running_services: 0, network_status: 'offline', public_ip: '--', system_health: 100
 })
 const recentChanges = ref<KvHistory[]>([])
+const refreshInterval = ref(0)
+
+// ---- 定时刷新 ----
+let timer: ReturnType<typeof setInterval> | null = null
+function startTimer(sec: number) {
+  if (timer) { clearInterval(timer); timer = null }
+  if (sec > 0) timer = setInterval(loadData, sec * 1000)
+}
+watch(refreshInterval, startTimer)
 
 const cpuChartRef = ref<HTMLElement | null>(null)
 const memChartRef = ref<HTMLElement | null>(null)
@@ -196,12 +209,15 @@ onMounted(async () => {
 
 onUnmounted(() => {
   cleanupWs?.()
+  if (timer) clearInterval(timer)
   cpuChart?.dispose()
   memChart?.dispose()
 })
 </script>
 
 <style scoped>
+.page-title-row { display: flex; align-items: center; gap: 12px; }
+.page-title-row .page-title { margin-bottom: 0; }
 .chart-box { width: 100%; height: 200px; }
 .change-list { display: flex; flex-direction: column; }
 .change-item {

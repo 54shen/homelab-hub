@@ -3,6 +3,7 @@
     <div class="page-header">
       <h1 class="page-title">变量管理</h1>
       <n-space>
+        <RefreshControl v-model="refreshInterval" />
         <n-button size="small" quaternary @click="handleExport">
           <ion-icon name="download-outline" style="margin-right:4px;vertical-align:-2px"></ion-icon>
           导出
@@ -24,21 +25,60 @@
       </n-space>
     </div>
 
-    <!-- 搜索 -->
-    <n-input
-      v-model:value="searchKey"
-      placeholder="搜索 key..."
-      clearable
-      size="large"
-      style="margin-bottom: 16px"
-    >
-      <template #prefix>
-        <ion-icon name="search-outline" style="color:var(--text-secondary)"></ion-icon>
-      </template>
-    </n-input>
+    <!-- 搜索 + 分类 -->
+    <div class="filter-row">
+      <n-input
+        v-model:value="searchKey"
+        placeholder="搜索 key..."
+        clearable
+        size="large"
+        style="flex: 1; min-width: 200px"
+      >
+        <template #prefix>
+          <ion-icon name="search-outline" style="color:var(--text-secondary)"></ion-icon>
+        </template>
+      </n-input>
+      <n-select
+        v-model:value="filterPrefix"
+        :options="prefixOptions"
+        placeholder="按设备/前缀"
+        clearable
+        size="large"
+        style="width: 180px"
+      />
+      <n-select
+        v-model:value="filterSource"
+        :options="sourceOptions"
+        placeholder="按来源"
+        clearable
+        size="large"
+        style="width: 150px"
+      />
+      <n-button size="large" quaternary @click="groupByPrefix = !groupByPrefix" :type="groupByPrefix ? 'primary' : 'default'">
+        <ion-icon name="layers-outline" style="margin-right:4px;vertical-align:-2px"></ion-icon>
+        分组
+      </n-button>
+    </div>
 
-    <!-- 表格 -->
+    <!-- 分组视图 -->
+    <div v-if="groupByPrefix" class="grouped-view">
+      <n-card v-for="[prefix, items] in groupedData" :key="prefix" size="small" :title="`${prefix} (${items.length})`" class="group-card">
+        <n-data-table
+          :columns="groupColumns"
+          :data="items"
+          :bordered="false"
+          :single-line="false"
+          size="small"
+          :row-key="(r: KvEntry) => r.key"
+          :pagination="false"
+        />
+      </n-card>
+      <n-empty v-if="groupedData.length === 0" description="无匹配变量" style="margin-top:60px" />
+    </div>
+
+    <!-- 平铺视图 -->
     <n-data-table
+      v-else
       :columns="columns"
       :data="filteredData"
       :bordered="false"
@@ -82,17 +122,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
-  NButton, NDataTable, NInput, NModal, NForm, NFormItem,
+  NButton, NCard, NDataTable, NInput, NModal, NForm, NFormItem,
   NSelect, NInputNumber, NSpace, NPopconfirm, NUpload, useMessage
 } from 'naive-ui'
+import RefreshControl from '../components/RefreshControl.vue'
 import { kvApi } from '../api'
 import type { KvEntry, KvSetRequest } from '../types'
 
 const message = useMessage()
 const data = ref<KvEntry[]>([])
 const searchKey = ref('')
+const filterPrefix = ref<string | null>(null)
+const filterSource = ref<string | null>(null)
+const groupByPrefix = ref(false)
 const checkedKeys = ref<string[]>([])
 const modalVisible = ref(false)
 const isEditing = ref(false)
@@ -110,9 +154,49 @@ const typeOptions = [
 ]
 
 const filteredData = computed(() => {
-  if (!searchKey.value) return data.value
-  const q = searchKey.value.toLowerCase()
-  return data.value.filter(r => r.key.toLowerCase().includes(q))
+  let rows = data.value
+  if (searchKey.value) {
+    const q = searchKey.value.toLowerCase()
+    rows = rows.filter(r => r.key.toLowerCase().includes(q))
+  }
+  if (filterPrefix.value) {
+    rows = rows.filter(r => r.key.startsWith(filterPrefix.value! + '.'))
+  }
+  if (filterSource.value) {
+    rows = rows.filter(r => r.source === filterSource.value)
+  }
+  return rows
+})
+
+// 自动提取前缀列表（key 中第一个 . 之前的部分）
+const prefixOptions = computed(() => {
+  const prefixes = new Set<string>()
+  for (const r of data.value) {
+    const dot = r.key.indexOf('.')
+    if (dot > 0) prefixes.add(r.key.slice(0, dot))
+  }
+  return [...prefixes].sort().map(p => ({ label: p, value: p }))
+})
+
+// 自动提取来源列表
+const sourceOptions = computed(() => {
+  const sources = new Set<string>()
+  for (const r of data.value) {
+    if (r.source) sources.add(r.source)
+  }
+  return [...sources].sort().map(s => ({ label: s, value: s }))
+})
+
+// 按前缀分组
+const groupedData = computed(() => {
+  const groups = new Map<string, KvEntry[]>()
+  for (const r of filteredData.value) {
+    const dot = r.key.indexOf('.')
+    const prefix = dot > 0 ? r.key.slice(0, dot) : '(无前缀)'
+    if (!groups.has(prefix)) groups.set(prefix, [])
+    groups.get(prefix)!.push(r)
+  }
+  return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))
 })
 
 const columns = [
@@ -148,6 +232,9 @@ const columns = [
     }
   }
 ]
+
+// 分组视图列（无 checkbox，前缀已在标题显示）
+const groupColumns = columns.filter(c => c.type !== 'selection')
 
 function handleCheck(keys: string[]) {
   checkedKeys.value = keys
@@ -220,6 +307,8 @@ async function handleImport({ file }: { file: File }) {
   } catch { message.error('导入失败，请检查文件格式') }
 }
 
+const refreshInterval = ref(0)
+
 async function loadData() {
   try {
     const res = await kvApi.list()
@@ -227,11 +316,38 @@ async function loadData() {
   } catch { data.value = [] }
 }
 
+let timer: ReturnType<typeof setInterval> | null = null
+function startTimer(sec: number) {
+  if (timer) { clearInterval(timer); timer = null }
+  if (sec > 0) timer = setInterval(loadData, sec * 1000)
+}
+watch(refreshInterval, startTimer)
+
 onMounted(loadData)
+onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
 
 <style scoped>
 :deep(.n-upload) {
   display: inline-flex;
+}
+.filter-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.grouped-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.group-card {
+  background: var(--bg-card);
+}
+.group-card :deep(.n-card-header) {
+  font-size: 13px;
+  font-weight: 600;
 }
 </style>

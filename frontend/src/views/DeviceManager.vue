@@ -3,6 +3,7 @@
     <div class="page-header">
       <h1 class="page-title">设备管理</h1>
       <n-space>
+        <RefreshControl v-model="refreshInterval" />
         <n-select
           v-model:value="filterGroup"
           :options="groupFilterOptions"
@@ -91,17 +92,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   NButton, NButtonGroup, NDataTable, NEmpty, NSelect, NSpace, NTag
 } from 'naive-ui'
 import StatusBadge from '../components/StatusBadge.vue'
+import RefreshControl from '../components/RefreshControl.vue'
 import { deviceApi } from '../api'
 import type { Device } from '../types'
 
 const viewMode = ref<'card' | 'table'>('card')
 const filterGroup = ref<string | null>(null)
 const devices = ref<Device[]>([])
+const refreshInterval = ref(0)
 
 const groupFilterOptions = computed(() => {
   const groups = [...new Set(devices.value.map(d => d.group).filter(Boolean))]
@@ -155,11 +158,23 @@ async function loadData() {
   } catch { devices.value = [] }
 }
 
-let timer: ReturnType<typeof setInterval>
-onMounted(() => {
-  loadData()
-  timer = setInterval(loadData, 30000)
-})
+let timer: ReturnType<typeof setInterval> | null = null
+
+function startTimer(sec: number) {
+  stopTimer()
+  if (sec > 0) {
+    timer = setInterval(loadData, sec * 1000)
+  }
+}
+
+function stopTimer() {
+  if (timer) { clearInterval(timer); timer = null }
+}
+
+watch(refreshInterval, startTimer, { immediate: true })
+
+onMounted(() => loadData())
+onUnmounted(() => stopTimer())
 </script>
 
 <style scoped>

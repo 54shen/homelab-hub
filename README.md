@@ -2,7 +2,9 @@
 
 家庭实验室统一数据中心 —— 连接所有设备、服务、脚本的数据交换平台。
 
-> 本项目由 [DeepSeek-v4-Pro](https://deepseek.com) 和 [Claude Code](https://claude.ai/code) 联合开发
+> 本项目由 [DeepSeek-v4-Pro](https://deepseek.com) 、[Claude Code](https://claude.ai/code) 还有个超级超级重要的项目主理人联合开发
+
+
 
 ---
 
@@ -33,7 +35,7 @@
 | 宝塔服务器 | Web 管理面板 |
 | 公网云服务器 | 外网入口 |
 | Home Assistant | 智能家居中枢 |
-| 青龙面板 | 定时任务管理 |
+| 呆呆面板 | 定时任务管理 |
 | Windows 工作站 | 主力开发/办公机 |
 | Docker | 容器化服务 |
 | Python 自动化脚本 | 各类自动化 |
@@ -58,7 +60,7 @@
           Windows ──┐
            PVE ─────┤
     Home Assistant ─┤
-          青龙 ─────┤
+          呆呆 ─────┤
           ... ──────┤
                      ↓
               Shared Center
@@ -886,10 +888,10 @@ ws.onmessage = (e) => {
 setInterval(() => ws.send("ping"), 25000);
 ```
 
-### 五、青龙面板（JavaScript 脚本）
+### 五、呆呆面板（JavaScript 脚本）
 
 ```javascript
-// 青龙环境变量设置：SHARED_CENTER_URL、SHARED_CENTER_TOKEN
+// 呆呆环境变量设置：SHARED_CENTER_URL、SHARED_CENTER_TOKEN
 
 const BASE = process.env.SHARED_CENTER_URL || "http://localhost:8000";
 

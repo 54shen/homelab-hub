@@ -5,6 +5,7 @@
         <ion-icon name="arrow-back-outline" style="margin-right:4px;vertical-align:-2px"></ion-icon>
         返回设备列表
       </n-button>
+      <RefreshControl v-model="refreshInterval" />
     </div>
 
     <n-spin :show="loading">
@@ -86,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, nextTick } from 'vue'
+import { onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem,
@@ -94,6 +95,7 @@ import {
 } from 'naive-ui'
 import * as echarts from 'echarts'
 import StatusBadge from '../components/StatusBadge.vue'
+import RefreshControl from '../components/RefreshControl.vue'
 import { deviceApi } from '../api'
 import type { Device, KvEntry } from '../types'
 
@@ -122,6 +124,8 @@ function iconForType(type: string): string {
   return map[type] || '📡'
 }
 
+const refreshInterval = ref(0)
+
 async function loadData() {
   loading.value = true
   try {
@@ -142,6 +146,13 @@ async function loadData() {
   }
 }
 
+let timer: ReturnType<typeof setInterval> | null = null
+function startTimer(sec: number) {
+  if (timer) { clearInterval(timer); timer = null }
+  if (sec > 0) timer = setInterval(loadData, sec * 1000)
+}
+watch(refreshInterval, startTimer)
+
 onMounted(async () => {
   await loadData()
   await nextTick()
@@ -159,10 +170,12 @@ onMounted(async () => {
     })
   }
 })
+
+onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
 
 <style scoped>
-.back-row { margin-bottom: var(--gap-md); }
+.back-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--gap-md); }
 .detail-hero {
   display: flex; align-items: center; justify-content: space-between;
   background: var(--bg-card); border: 1px solid var(--border-card);
