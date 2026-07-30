@@ -255,6 +255,25 @@ def delete_session(session_id: int):
         db.close()
 
 
+@app.post("/api/sessions/kick-all")
+def kick_all_sessions(request: Request):
+    """踢掉当前 Token 之外的所有 Web 会话"""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse(status_code=401, content={"detail": "缺少 Token"})
+    current_token = auth_header[7:]
+
+    db = SessionLocal()
+    try:
+        deleted = db.query(SessionModel).filter(
+            SessionModel.session_token != current_token
+        ).delete()
+        db.commit()
+        return {"success": True, "message": f"已踢掉 {deleted} 个会话", "deleted": deleted}
+    finally:
+        db.close()
+
+
 # ---- Token 管理 API ----
 @app.get("/api/tokens")
 def list_tokens():

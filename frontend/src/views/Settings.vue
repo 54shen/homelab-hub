@@ -267,18 +267,11 @@ async function handleKickSession(id: number) {
 }
 
 async function handleKickAll() {
-  // 踢掉所有会话（除了当前 Token 对应的会话）
-  const currentToken = localStorage.getItem('sc_token')
-  for (const s of sessions.value) {
-    // 跳过自己的会话（通过比较 token 前缀）
-    if (currentToken && currentToken.length > 10) {
-      try {
-        await http.delete(`/sessions/${s.id}`)
-      } catch { /* */ }
-    }
-  }
-  message.success('已踢掉所有其他会话')
-  await loadSessions()
+  try {
+    const resp = await http.post('/sessions/kick-all')
+    message.success(`已踢掉 ${resp.data.deleted || 0} 个其他会话`)
+    await loadSessions()
+  } catch { message.error('操作失败') }
 }
 
 async function loadSessions() {
