@@ -40,7 +40,24 @@
             <span class="dc-name">{{ d.name }}</span>
             <span class="dc-hostname">{{ d.hostname || d.ip || '—' }}</span>
           </div>
-          <StatusBadge :online="d.online" />
+          <div class="dc-status">
+            <StatusBadge :online="d.online" />
+            <!-- 心跳超时 -->
+            <input
+              v-if="editingTimeoutId === d.id"
+              ref="timeoutInputRef"
+              v-model="timeoutInput"
+              class="timeout-input"
+              @keydown.enter="saveTimeout(d)"
+              @blur="cancelTimeoutEdit"
+              @click.stop
+            />
+            <span
+              v-else
+              class="timeout-tag"
+              @click.stop="startTimeoutEdit(d)"
+            >⏱{{ d.heartbeat_timeout || 180 }}s</span>
+          </div>
         </div>
 
         <!-- 标签 -->
@@ -94,13 +111,40 @@
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
-  NButton, NButtonGroup, NDataTable, NEmpty, NSelect, NSpace, NTag
+  NButton, NButtonGroup, NDataTable, NEmpty, NInput, NSelect, NSpace, NTag, useMessage
 } from 'naive-ui'
 import StatusBadge from '../components/StatusBadge.vue'
 import RefreshControl from '../components/RefreshControl.vue'
 import { useRefreshInterval } from '../composables/useRefreshInterval'
-import { deviceApi } from '../api'
+import { deviceApi, kvApi } from '../api'
 import type { Device } from '../types'
+
+const timeoutInput = ref('')
+const editingTimeoutId = ref<string | null>(null)
+const timeoutInputRef = ref<HTMLInputElement | null>(null)
+const message = useMessage()
+
+function startTimeoutEdit(d: Device) {
+  editingTimeoutId.value = d.id
+  timeoutInput.value = String(d.heartbeat_timeout || 180)
+  setTimeout(() => timeoutInputRef.value?.focus(), 50)
+}
+
+function cancelTimeoutEdit() {
+  editingTimeoutId.value = null
+}
+
+async function saveTimeout(d: Device) {
+  const num = parseInt(timeoutInput.value)
+  if (!num || num < 1) { cancelTimeoutEdit(); return }
+  try {
+    await kvApi.set({ key: `${d.name}.心跳超时`, value: String(num), type: 'int', source: 'ui' })
+    d.heartbeat_timeout = num
+    message.success(`${d.name} → ${num}s`)
+    cancelTimeoutEdit()
+    await loadData()
+  } catch { message.error('保存失败') }
+}
 
 import { useUISetting } from '../composables/useUISetting'
 
@@ -132,6 +176,12 @@ const columns = [
   { title: '分组', key: 'group', width: 80 },
   { title: '版本', key: 'version', width: 70 },
   { title: '最后心跳', key: 'last_heartbeat', width: 160 },
+  {
+    title: '超时', key: 'heartbeat_timeout', width: 85,
+    render(row: Device) {
+      return h('span', { style: 'color:#E65100;font-weight:500;font-variant-numeric:tabular-nums' }, `${row.heartbeat_timeout || 180}s`)
+    }
+  },
   {
     title: '状态', key: 'online', width: 80,
     render(row: Device) {
@@ -299,5 +349,19 @@ onUnmounted(() => stopTimer())
 .dc-uptime, .dc-heartbeat {
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+.dc-status { display: flex; align-items: center; gap: 8px; }
+.timeout-tag {
+  font-size: 11px; color: var(--text-secondary); cursor: pointer;
+  background: #FFF3E0; color: #E65100; padding: 2px 8px; border-radius: 10px;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  transition: all 0.15s; font-weight: 500;
+}
+.timeout-tag:hover { background: #FFE0B2; }
+.timeout-input {
+  width: 52px; font-size: 11px; padding: 2px 6px; background: #FFF3E0; color: #E65100;
+  border: 1px solid var(--color-primary); border-radius: 8px;
+  text-align: center; outline: none; background: #fff; color: var(--text-primary);
 }
 </style>

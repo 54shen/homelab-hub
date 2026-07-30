@@ -19,6 +19,20 @@
               <p class="hero-sub">{{ device.hostname || device.id }}</p>
             </div>
             <StatusBadge :online="device.online" style="margin-left:12px" />
+            <input
+              v-if="editingTimeout"
+              ref="timeoutInputRef"
+              v-model="timeoutInput"
+              class="timeout-input"
+              @keydown.enter="saveTimeout()"
+              @blur="editingTimeout = false"
+              @click.stop
+            />
+            <span
+              v-else
+              class="timeout-tag"
+              @click.stop="startTimeoutEdit()"
+            >⏱{{ device.heartbeat_timeout || 180 }}s</span>
           </div>
           <n-tag size="small" :bordered="false" round>{{ device.group || '默认' }}</n-tag>
         </div>
@@ -91,13 +105,13 @@ import { onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem,
-  NEmpty, NProgress, NSpin, NTag
+  NEmpty, NProgress, NSpin, NTag, useMessage
 } from 'naive-ui'
 import * as echarts from 'echarts'
 import StatusBadge from '../components/StatusBadge.vue'
 import RefreshControl from '../components/RefreshControl.vue'
 import { useRefreshInterval } from '../composables/useRefreshInterval'
-import { deviceApi, historyApi } from '../api'
+import { deviceApi, historyApi, kvApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
 import type { Device, KvEntry } from '../types'
 
@@ -164,7 +178,28 @@ function iconForType(type: string): string {
   return map[type] || '📡'
 }
 
+const message = useMessage()
+const timeoutInput = ref('')
+const editingTimeout = ref(false)
+const timeoutInputRef = ref<HTMLInputElement | null>(null)
 const refreshInterval = useRefreshInterval()
+
+function startTimeoutEdit() {
+  editingTimeout.value = true
+  timeoutInput.value = String(device.value?.heartbeat_timeout || 180)
+  setTimeout(() => timeoutInputRef.value?.focus(), 50)
+}
+
+async function saveTimeout() {
+  const num = parseInt(timeoutInput.value)
+  if (!num || num < 1 || !device.value) { editingTimeout.value = false; return }
+  try {
+    await kvApi.set({ key: `${device.value.name}.心跳超时`, value: String(num), type: 'int', source: 'ui' })
+    device.value.heartbeat_timeout = num
+    message.success(`${device.value.name} → ${num}s`)
+  } catch { message.error('保存失败') }
+  editingTimeout.value = false
+}
 
 async function loadData() {
   loading.value = true
@@ -251,6 +286,18 @@ onUnmounted(() => {
 <style scoped>
 .back-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--gap-md); }
 .chart-box { width: 100%; height: 220px; overflow: hidden; }
+.timeout-tag {
+  font-size: 12px; color: var(--text-secondary); cursor: pointer;
+  background: #FFF3E0; color: #E65100; padding: 3px 10px; border-radius: 12px;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  transition: all 0.15s; font-weight: 500;
+}
+.timeout-tag:hover { background: #FFE0B2; }
+.timeout-input {
+  width: 60px; font-size: 12px; padding: 3px 8px; background: #FFF3E0; color: #E65100;
+  border: 1px solid var(--color-primary); border-radius: 10px;
+  text-align: center; outline: none; background: #fff; color: var(--text-primary);
+}
 .detail-hero {
   display: flex; align-items: center; justify-content: space-between;
   background: var(--bg-card); border: 1px solid var(--border-card);
