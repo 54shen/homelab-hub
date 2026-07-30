@@ -68,10 +68,7 @@
     <!-- Token 编辑弹窗 -->
     <n-modal v-model:show="tokenModalVisible" preset="card" :title="editingTokenId ? '编辑 Token' : '新增 Token'" style="width:440px">
       <n-form label-placement="left" label-width="80px">
-        <n-form-item label="用户名" required>
-          <n-input v-model:value="tokenForm.username" placeholder="登录用的账号名" />
-        </n-form-item>
-        <n-form-item label="备注名">
+        <n-form-item label="备注名" required>
           <n-input v-model:value="tokenForm.name" placeholder="描述用途，如 windows-agent" />
         </n-form-item>
         <n-form-item label="权限">
@@ -107,12 +104,12 @@ const base = import.meta.env.VITE_API_BASE || '/api'
 
 // ---- Token ----
 interface TokenEntry {
-  id: number; username: string; name: string; token: string; token_full: string; permission: string; created_at: string
+  id: number; name: string; token: string; token_full: string; permission: string; created_at: string
 }
 const tokens = ref<TokenEntry[]>([])
 const tokenModalVisible = ref(false)
 const editingTokenId = ref<number | null>(null)
-const tokenForm = ref({ username: '', name: '', permission: 'read', tokenStr: '' })
+const tokenForm = ref({ name: '', permission: 'read', tokenStr: '' })
 
 const permissionOptions = [
   { label: 'read — 只读', value: 'read' },
@@ -121,8 +118,7 @@ const permissionOptions = [
 ]
 
 const tokenColumns = [
-  { title: '用户名', key: 'username', width: 100 },
-  { title: '备注', key: 'name', width: 140 },
+  { title: '备注', key: 'name', width: 160 },
   { title: 'Token', key: 'token', width: 160 },
   { title: '权限', key: 'permission', width: 80 },
   { title: '创建时间', key: 'created_at', width: 160 },
@@ -142,13 +138,13 @@ const tokenColumns = [
 
 function openTokenCreate() {
   editingTokenId.value = null
-  tokenForm.value = { username: '', name: '', permission: 'read', tokenStr: '' }
+  tokenForm.value = { name: '', permission: 'read', tokenStr: '' }
   tokenModalVisible.value = true
 }
 
 function openTokenEdit(row: TokenEntry) {
   editingTokenId.value = row.id
-  tokenForm.value = { username: row.username, name: row.name, permission: row.permission, tokenStr: '' }
+  tokenForm.value = { name: row.name, permission: row.permission, tokenStr: '' }
   tokenModalVisible.value = true
 }
 
@@ -156,14 +152,12 @@ async function handleTokenSave() {
   try {
     if (editingTokenId.value) {
       await axios.put(`${base}/tokens/${editingTokenId.value}`, {
-        username: tokenForm.value.username,
         name: tokenForm.value.name,
         permission: tokenForm.value.permission
       })
       message.success('已更新')
     } else {
       const resp = await axios.post(`${base}/tokens`, {
-        username: tokenForm.value.username,
         name: tokenForm.value.name,
         permission: tokenForm.value.permission
       })
@@ -198,12 +192,11 @@ async function loadTokens() {
 }
 
 // ---- 会话管理 ----
-interface SessionEntry { id: number; username: string; token_name: string; permission: string; ip: string; created_at: string; last_active: string }
+interface SessionEntry { id: number; username: string; permission: string; ip: string; created_at: string; last_active: string }
 const sessions = ref<SessionEntry[]>([])
 
 const sessionColumns = [
-  { title: '用户', key: 'username', width: 100 },
-  { title: 'Token', key: 'token_name', width: 120 },
+  { title: '用户', key: 'username', width: 120 },
   { title: '权限', key: 'permission', width: 70 },
   { title: '登录时间', key: 'created_at', width: 160 },
   { title: '最后活跃', key: 'last_active', width: 160 },

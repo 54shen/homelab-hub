@@ -59,15 +59,25 @@ class Device(Base):
     registered_at = Column(String(32), default=_now)
 
 
-# ---- Token 表 ----
+# ---- 用户表（前端登录用） ----
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(64), unique=True, nullable=False)
+    password_hash = Column(String(256), nullable=False)
+    permission = Column(String(32), default="read")
+    created_at = Column(String(32), default=_now)
+
+
+# ---- Token 表（API 调用用） ----
 class Token(Base):
     __tablename__ = "tokens"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    username = Column(String(64), default="")
     name = Column(String(128), unique=True, nullable=False)
     token = Column(String(256), nullable=False)
-    permission = Column(String(32), default="read")  # read / write / admin
+    permission = Column(String(32), default="read")
     created_at = Column(String(32), default=_now)
 
 
@@ -76,9 +86,8 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    token_id = Column(Integer, nullable=False)
+    user_id = Column(Integer, nullable=False)
     username = Column(String(64), default="")
-    token_name = Column(String(128), default="")
     permission = Column(String(32), default="")
     ip = Column(String(45), default="")
     user_agent = Column(String(256), default="")

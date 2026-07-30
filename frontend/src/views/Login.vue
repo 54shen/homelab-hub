@@ -14,8 +14,8 @@
         <n-form-item path="username" label="账号">
           <n-input v-model:value="form.username" placeholder="输入用户名" clearable />
         </n-form-item>
-        <n-form-item path="token" label="Token">
-          <n-input v-model:value="form.token" type="password" show-password-on="click" placeholder="输入 Token" clearable @keyup.enter="handleLogin" />
+        <n-form-item path="password" label="密码">
+          <n-input v-model:value="form.password" type="password" show-password-on="click" placeholder="输入密码" clearable @keyup.enter="handleLogin" />
         </n-form-item>
       </n-form>
 
@@ -39,15 +39,15 @@ const message = useMessage()
 const loading = ref(false)
 const errorMsg = ref('')
 
-const form = ref({ username: '', token: '' })
+const form = ref({ username: '', password: '' })
 const rules = {
   username: [{ required: true, message: '请输入账号' }],
-  token: [{ required: true, message: '请输入 Token' }]
+  password: [{ required: true, message: '请输入密码' }]
 }
 
 async function handleLogin() {
-  if (!form.value.username || !form.value.token) {
-    errorMsg.value = '请填写账号和 Token'
+  if (!form.value.username || !form.value.password) {
+    errorMsg.value = '请填写账号和密码'
     return
   }
   loading.value = true
@@ -56,7 +56,7 @@ async function handleLogin() {
     const base = import.meta.env.VITE_API_BASE || '/api'
     const resp = await axios.post(base + '/auth/login', {
       username: form.value.username,
-      token: form.value.token
+      password: form.value.password
     })
     if (resp.data?.success) {
       localStorage.setItem('sc_username', resp.data.username)
@@ -68,7 +68,7 @@ async function handleLogin() {
       errorMsg.value = '登录失败'
     }
   } catch (e: any) {
-    errorMsg.value = e?.response?.data?.detail || '登录失败，请检查账号和 Token'
+    errorMsg.value = e?.response?.data?.detail || '登录失败，请检查账号和密码'
   } finally {
     loading.value = false
   }

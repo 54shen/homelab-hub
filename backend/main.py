@@ -7,7 +7,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from apscheduler.schedulers.background import BackgroundScheduler
 from database import init_db, SessionLocal
-from models import Token as TokenModel
+from models import Token as TokenModel, User, Session as SessionModel
+import hashlib
+import secrets
+
+def hash_password(password: str) -> str:
+    """SHA-256 + 随机盐"""
+    salt = secrets.token_hex(16)
+    return salt + ":" + hashlib.sha256((salt + password).encode()).hexdigest()
+
+def verify_password(password: str, hashed: str) -> bool:
+    """验证密码"""
+    try:
+        salt, hash_val = hashed.split(":", 1)
+        return hashlib.sha256((salt + password).encode()).hexdigest() == hash_val
+    except ValueError:
+        return False
 from services.cleanup import cleanup_history, check_device_offline
 from websocket_manager import connect, disconnect, broadcast
 from config import CLEANUP_INTERVAL_HOURS, HEARTBEAT_TIMEOUT_SECONDS
@@ -21,7 +36,7 @@ scheduler = BackgroundScheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    _ensure_admin_token()
+    _ensure_admin_user()
     scheduler.add_job(cleanup_history, "interval", hours=CLEANUP_INTERVAL_HOURS, id="cleanup")
     scheduler.add_job(check_device_offline, "interval", seconds=HEARTBEAT_TIMEOUT_SECONDS, id="heartbeat_check")
     scheduler.start()
@@ -30,19 +45,23 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=False)
 
 
-def _ensure_admin_token():
+def _ensure_admin_user():
+    """确保至少有一个 admin 用户可用"""
     db = SessionLocal()
     try:
-        existing = db.query(TokenModel).filter(TokenModel.permission == "admin").first()
+        existing = db.query(User).filter(User.permission == "admin").first()
         if not existing:
+            # 创建默认管理员用户 密码: admin123
             import uuid
+            db.add(User(username="admin", password_hash=hash_password("admin123"), permission="admin"))
+            # 同时创建一个 admin token 供 API 调用
             token_str = "sk-" + uuid.uuid4().hex
-            db.add(TokenModel(username="admin", name="默认管理员", token=token_str, permission="admin"))
+            db.add(TokenModel(name="默认管理员", token=token_str, permission="admin"))
             db.commit()
             print(f"\n{'='*50}")
-            print(f"  登录账号: admin")
-            print(f"  Admin Token: {token_str}")
-            print(f"  请妥善保存！")
+            print(f"  Web 登录: admin / admin123")
+            print(f"  API Token: {token_str}")
+            print(f"  请尽快修改默认密码！")
             print(f"{'='*50}\n")
     finally:
         db.close()
@@ -93,11 +112,10 @@ async def auth_middleware(request: Request, call_next):
                 return JSONResponse(status_code=403, content={"detail": "权限不足（需要 write 或 admin）"})
 
         # 更新会话活跃时间
-        from models import Session
-        session = db.query(Session).filter(
-            Session.token_id == token_record.id,
-            Session.ip == (request.client.host if request.client else "")
-        ).order_by(Session.id.desc()).first()
+        session = db.query(SessionModel).filter(
+            SessionModel.username == token_record.name,
+            SessionModel.ip == (request.client.host if request.client else "")
+        ).order_by(SessionModel.id.desc()).first()
         if session:
             from datetime import datetime
             session.last_active = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -136,28 +154,37 @@ from pydantic import BaseModel as PydanticBase
 
 class LoginRequest(PydanticBase):
     username: str
-    token: str
+    password: str
 
 @app.post("/api/auth/login")
 def login(req: LoginRequest):
-    """前端登录：验证 username + token"""
+    """前端登录：账号 + 密码"""
     db = SessionLocal()
     try:
+        user = db.query(User).filter(User.username == req.username).first()
+        if not user or not verify_password(req.password, user.password_hash):
+            return JSONResponse(status_code=401, content={"detail": "账号或密码错误"})
+
+        # 查找或创建一个 token 给前端用
         token_record = db.query(TokenModel).filter(
-            TokenModel.username == req.username,
-            TokenModel.token == req.token
+            TokenModel.name == f"web-{user.username}"
         ).first()
         if not token_record:
-            return JSONResponse(status_code=401, content={"detail": "用户名或 Token 错误"})
+            import uuid
+            token_str = "sk-" + uuid.uuid4().hex
+            token_record = TokenModel(
+                name=f"web-{user.username}",
+                token=token_str,
+                permission=user.permission
+            )
+            db.add(token_record)
+            db.flush()
 
-        # 创建/更新会话记录
-        from models import Session
-        import uuid
-        session = Session(
-            token_id=token_record.id,
-            username=req.username,
-            token_name=token_record.name,
-            permission=token_record.permission,
+        # 创建会话记录
+        session = SessionModel(
+            user_id=user.id,
+            username=user.username,
+            permission=user.permission,
             ip="",
             user_agent=""
         )
@@ -166,9 +193,8 @@ def login(req: LoginRequest):
 
         return {
             "success": True,
-            "username": token_record.username,
-            "name": token_record.name,
-            "permission": token_record.permission,
+            "username": user.username,
+            "permission": user.permission,
             "token": token_record.token
         }
     finally:
@@ -178,14 +204,12 @@ def login(req: LoginRequest):
 # ---- 会话管理（设置页用） ----
 @app.get("/api/sessions")
 def list_sessions():
-    from models import Session
     db = SessionLocal()
     try:
-        sessions = db.query(Session).order_by(Session.last_active.desc()).all()
+        sessions = db.query(SessionModel).order_by(SessionModel.last_active.desc()).all()
         return [{
-            "id": s.id, "token_id": s.token_id, "username": s.username,
-            "token_name": s.token_name, "permission": s.permission,
-            "ip": s.ip, "user_agent": s.user_agent,
+            "id": s.id, "user_id": s.user_id, "username": s.username,
+            "permission": s.permission, "ip": s.ip, "user_agent": s.user_agent,
             "created_at": s.created_at, "last_active": s.last_active
         } for s in sessions]
     finally:
@@ -194,10 +218,9 @@ def list_sessions():
 
 @app.delete("/api/sessions/{session_id}")
 def delete_session(session_id: int):
-    from models import Session
     db = SessionLocal()
     try:
-        s = db.query(Session).filter(Session.id == session_id).first()
+        s = db.query(SessionModel).filter(SessionModel.id == session_id).first()
         if s:
             db.delete(s)
             db.commit()
@@ -214,8 +237,8 @@ def list_tokens():
     try:
         tokens = db.query(TokenModel).order_by(TokenModel.id).all()
         return [{
-            "id": t.id, "username": t.username, "name": t.name,
-            "token": t.token[:8] + "••••" + t.token[-4:],  # 脱敏显示
+            "id": t.id, "name": t.name,
+            "token": t.token[:8] + "••••" + t.token[-4:],
             "token_full": t.token,
             "permission": t.permission, "created_at": t.created_at
         } for t in tokens]
@@ -224,7 +247,6 @@ def list_tokens():
 
 
 class TokenCreate(PydanticBase):
-    username: str = ""
     name: str = ""
     permission: str = "read"
 
@@ -234,12 +256,7 @@ def create_token(req: TokenCreate):
     try:
         import uuid
         token_str = "sk-" + uuid.uuid4().hex
-        t = TokenModel(
-            username=req.username or req.name,
-            name=req.name or req.username or "unnamed",
-            token=token_str,
-            permission=req.permission
-        )
+        t = TokenModel(name=req.name or "unnamed", token=token_str, permission=req.permission)
         db.add(t)
         db.commit()
         return {"success": True, "token": token_str, "id": t.id}
@@ -248,7 +265,6 @@ def create_token(req: TokenCreate):
 
 
 class TokenUpdate(PydanticBase):
-    username: str | None = None
     name: str | None = None
     permission: str | None = None
 
@@ -259,7 +275,6 @@ def update_token(token_id: int, req: TokenUpdate):
         t = db.query(TokenModel).filter(TokenModel.id == token_id).first()
         if not t:
             return JSONResponse(status_code=404, content={"detail": "Token 不存在"})
-        if req.username is not None: t.username = req.username
         if req.name is not None: t.name = req.name
         if req.permission is not None: t.permission = req.permission
         db.commit()
@@ -274,9 +289,7 @@ def delete_token(token_id: int):
     try:
         t = db.query(TokenModel).filter(TokenModel.id == token_id).first()
         if t:
-            # 同时删除关联会话
-            from models import Session
-            db.query(Session).filter(Session.token_id == token_id).delete()
+            db.query(SessionModel).filter(SessionModel.user_id == t.id).delete()
             db.delete(t)
             db.commit()
         return {"success": True, "message": "已删除"}
