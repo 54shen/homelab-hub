@@ -52,6 +52,7 @@ DEFAULTS: Dict[str, Any] = {
     "device_type": "computer",
     "device_group": "PC",
     "heartbeat_interval": 30,       # 心跳间隔（秒）
+    "heartbeat_timeout": 0,         # 离线超时（秒），0=使用服务端全局默认(60s)
     "report_kv": True,              # 是否同时上报 KV 变量
     "kv_prefix": "",                # KV 前缀，留空则自动使用设备名
     "source": "agent",              # KV 上报时的来源标记
@@ -92,13 +93,14 @@ def load_config() -> Dict[str, Any]:
         "AGENT_TYPE": "device_type",
         "AGENT_GROUP": "device_group",
         "AGENT_INTERVAL": "heartbeat_interval",
+        "AGENT_TIMEOUT": "heartbeat_timeout",
         "AGENT_SOURCE": "source",
     }
     for env_key, cfg_key in env_map.items():
         val = os.environ.get(env_key)
         if val:
             # 数字类型转换
-            if cfg_key == "heartbeat_interval":
+            if cfg_key in ("heartbeat_interval", "heartbeat_timeout"):
                 cfg[cfg_key] = int(val)
             elif cfg_key == "report_kv":
                 cfg[cfg_key] = val.lower() in ("1", "true", "yes")
@@ -110,86 +112,6 @@ def load_config() -> Dict[str, Any]:
         cfg["kv_prefix"] = cfg["device_name"].replace("-", ".").replace(" ", ".") + "."
 
     return cfg
-
-
-# ============================================================
-# HTTP 客户端（基于 requests 库）
-# ============================================================
-
-class AgentClient:
-    """HTTP 客户端，带 Token 认证、连接复用和自动重试"""
-
-    def __init__(self, base_url: str, token: str = ""):
-        self.base_url = base_url.rstrip("/")
-        self.token = token
-        self.session = requests.Session()
-        self.session.headers.update(self._build_headers())
-
-    def _build_headers(self) -> dict:
-        h = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-        if self.token:
-            h["Authorization"] = f"Bearer {self.token}"
-        return h
-
-    def _request(
-        self,
-        method: str,
-        path: str,
-        data: Optional[dict] = None,
-        timeout: int = 10,
-    ) -> Optional[dict]:
-        """通用 HTTP 请求，返回 JSON 或 None"""
-        url = f"{self.base_url}{path}"
-        try:
-            resp = self.session.request(
-                method=method,
-                url=url,
-                json=data,
-                timeout=timeout,
-            )
-
-            if 400 <= resp.status_code < 500:
-                body_text = resp.text[:200]
-                log.error(f"请求失败 HTTP {resp.status_code}: {url} — {body_text}")
-                return None
-
-            resp.raise_for_status()
-            return resp.json()
-
-        except requests.exceptions.Timeout:
-            raise
-        except requests.exceptions.ConnectionError:
-            raise
-        except requests.exceptions.RequestException as e:
-            log.error(f"请求异常: {url} — {e}")
-            return None
-
-    def post(self, path: str, data: dict, retry: int = 3, delay: int = 5) -> Optional[dict]:
-        """POST 请求，自动重试（4xx 不重试，5xx/网络错误指数退避）"""
-        last_error = None
-        for attempt in range(retry + 1):
-            try:
-                result = self._request("POST", path, data)
-                if result is not None:
-                    return result
-                # 4xx 错误 — 不重试
-                return None
-            except (requests.exceptions.ConnectionError,
-                    requests.exceptions.Timeout) as e:
-                last_error = e
-            except requests.exceptions.RequestException as e:
-                last_error = e
-
-            if attempt < retry:
-                wait = delay * (2 ** attempt)  # 指数退避
-                log.warning(f"请求失败，{wait}s 后重试 ({attempt + 1}/{retry}): {last_error}")
-                time.sleep(wait)
-
-        log.error(f"请求最终失败 (已重试 {retry} 次): {last_error}")
-        return None
 
 
 # ============================================================
@@ -322,13 +244,55 @@ def collect_system_info() -> Dict[str, Any]:
 # ============================================================
 
 class Agent:
-    """设备监控 Agent"""
+    """设备监控 Agent —— 使用 requests.Session 直连 Shared Center"""
 
     def __init__(self, cfg: Dict[str, Any]):
         self.cfg = cfg
-        self.client = AgentClient(cfg["base_url"], cfg["token"])
+        self.base_url = cfg["base_url"].rstrip("/")
         self.device_id: Optional[str] = None
         self._running = True
+
+        # 创建 requests Session，预置认证 headers
+        self._session = requests.Session()
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        if cfg["token"]:
+            headers["Authorization"] = f"Bearer {cfg['token']}"
+        self._session.headers.update(headers)
+
+    # ---- HTTP 请求（带自动重试） ----
+    def _post(self, path: str, data: dict, retry: int = 3, delay: int = 5) -> Optional[dict]:
+        """POST 请求，自动重试（4xx 不重试，5xx/网络错误指数退避）"""
+        url = f"{self.base_url}{path}"
+        last_error = None
+
+        for attempt in range(retry + 1):
+            try:
+                resp = self._session.post(url, json=data, timeout=10)
+
+                if 400 <= resp.status_code < 500:
+                    log.error(f"请求失败 HTTP {resp.status_code}: {url} — {resp.text[:200]}")
+                    return None
+
+                resp.raise_for_status()
+                return resp.json()
+
+            except requests.exceptions.Timeout as e:
+                last_error = e
+            except requests.exceptions.ConnectionError as e:
+                last_error = e
+            except requests.exceptions.RequestException as e:
+                last_error = e
+
+            if attempt < retry:
+                wait = delay * (2 ** attempt)
+                log.warning(f"请求失败，{wait}s 后重试 ({attempt + 1}/{retry}): {last_error}")
+                time.sleep(wait)
+
+        log.error(f"请求最终失败 (已重试 {retry} 次): {last_error}")
+        return None
 
     # ---- 设备注册 ----
     def register(self) -> bool:
@@ -343,11 +307,12 @@ class Agent:
             "mac": sys_info["mac"],
             "os": f"{sys_info['os']} {sys_info['os_release']}",
             "group": self.cfg["device_group"],
+            "heartbeat_timeout": self.cfg.get("heartbeat_timeout", 0),
         }
 
-        result = self.client.post("/api/device/register", payload,
-                                   retry=self.cfg["retry_times"],
-                                   delay=self.cfg["retry_delay"])
+        result = self._post("/api/device/register", payload,
+                            retry=self.cfg["retry_times"],
+                            delay=self.cfg["retry_delay"])
         if result and result.get("success"):
             self.device_id = result.get("data", {}).get("device_id", "")
             log.info(f"设备注册成功: {self.cfg['device_name']} (ID: {self.device_id})")
@@ -369,10 +334,11 @@ class Agent:
             "disk": sys_info["disk"],
             "uptime": sys_info["uptime"],
             "ip": sys_info["ip"],
+            "heartbeat_timeout": self.cfg.get("heartbeat_timeout", 0),
         }
 
-        result = self.client.post("/api/device/heartbeat", payload,
-                                   retry=1, delay=2)  # 心跳重试少一些，不阻塞下次上报
+        result = self._post("/api/device/heartbeat", payload,
+                            retry=1, delay=2)  # 心跳重试少一些，不阻塞下次上报
         if result and result.get("success"):
             cpu_str = f"CPU:{sys_info['cpu']}%" if sys_info["cpu"] is not None else "CPU:?"
             mem_str = f"MEM:{sys_info['memory']}%" if sys_info["memory"] is not None else "MEM:?"
@@ -389,7 +355,6 @@ class Agent:
         sys_info = collect_system_info()
         pfx = self.cfg["kv_prefix"]
 
-        # 要上报的 KV 对
         kv_items = []
 
         def add(key_suffix: str, value: Any, typ: str = "string"):
@@ -437,16 +402,16 @@ class Agent:
         # 温度
         for k, v in sys_info.items():
             if k.startswith("temp_"):
-                # 例如 temp_coretemp → 温度_coretemp
                 add(f"温度_{k[5:]}", v, typ="int")
 
         # 每次仅上报变化的（批量写入已有值的会自然覆盖）
+        source = self.cfg.get("source", "agent")
         for item in kv_items:
-            self.client.post("/api/kv", {
+            self._post("/api/kv", {
                 "key": item["key"],
                 "value": item["value"],
                 "type": item["type"],
-                "source": self.cfg.get("source", "agent"),
+                "source": source,
             }, retry=1, delay=2)
 
     # ---- 主循环 ----
@@ -486,7 +451,6 @@ class Agent:
             try:
                 self.send_heartbeat()
 
-                # 定期上报 KV（不需要太频繁，减少请求量）
                 if self.cfg["report_kv"]:
                     kv_counter += 1
                     if kv_counter >= kv_report_every:
@@ -513,7 +477,7 @@ class Agent:
         """优雅退出"""
         log.info("发送离线心跳...")
         try:
-            self.client.post("/api/device/heartbeat", {
+            self._post("/api/device/heartbeat", {
                 "name": self.cfg["device_name"],
                 "online": False,
             }, retry=1, delay=1)

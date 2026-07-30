@@ -38,4 +38,10 @@ def _migrate():
             conn.execute(sqlalchemy.text("ALTER TABLE webhooks ADD COLUMN body TEXT DEFAULT ''"))
             conn.commit()
         except Exception:
-            pass  # 字段已存在
+            pass
+        # devices.heartbeat_timeout (v2.1)
+        try:
+            conn.execute(sqlalchemy.text("ALTER TABLE devices ADD COLUMN heartbeat_timeout INTEGER DEFAULT 0"))
+            conn.commit()
+        except Exception:
+            pass

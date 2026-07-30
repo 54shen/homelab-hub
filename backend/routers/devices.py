@@ -59,6 +59,7 @@ def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_db), t
         existing.mac = req.mac or existing.mac
         existing.os = req.os or existing.os
         existing.group = req.group or existing.group
+        existing.heartbeat_timeout = req.heartbeat_timeout
         existing.last_heartbeat = now_str
     else:
         db.add(Device(
@@ -110,6 +111,8 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
         device.uptime = req.uptime
     if req.ip:
         device.ip = req.ip
+    if req.heartbeat_timeout > 0:
+        device.heartbeat_timeout = req.heartbeat_timeout
 
     db.commit()
     await broadcast("device.heartbeat", {"name": req.name, "online": req.online, "cpu": req.cpu, "memory": req.memory, "disk": req.disk})

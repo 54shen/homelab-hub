@@ -41,6 +41,7 @@ export interface Device {
   disk?: number
   uptime?: string
   notes: string
+  heartbeat_timeout: number
   last_heartbeat: string
   registered_at: string
 }

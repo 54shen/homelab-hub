@@ -55,6 +55,7 @@ class Device(Base):
     disk = Column(Integer, nullable=True)
     uptime = Column(String(32), default="")
     notes = Column(String(512), default="")
+    heartbeat_timeout = Column(Integer, default=0)  # 0=使用全局默认，>0=自定义秒数
     last_heartbeat = Column(String(32), default=_now)
     registered_at = Column(String(32), default=_now)
 

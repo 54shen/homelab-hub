@@ -65,6 +65,7 @@ class DeviceRegisterRequest(BaseModel):
     mac: str = ""
     os: str = ""
     group: str = ""
+    heartbeat_timeout: int = 0  # 0=全局默认，>0=自定义秒数
 
 
 class DeviceHeartbeatRequest(BaseModel):
@@ -75,6 +76,7 @@ class DeviceHeartbeatRequest(BaseModel):
     disk: Optional[int] = None
     uptime: str = ""
     ip: str = ""
+    heartbeat_timeout: int = 0  # 可在心跳中动态更新超时
 
 
 class DeviceOut(BaseModel):
@@ -93,6 +95,7 @@ class DeviceOut(BaseModel):
     disk: Optional[int]
     uptime: str
     notes: str
+    heartbeat_timeout: int
     last_heartbeat: str
     registered_at: str
 
