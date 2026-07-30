@@ -188,7 +188,7 @@ network.public_ip
 | 框架   | FastAPI    |
 | ORM  | SQLAlchemy |
 | 数据库  | SQLite     |
-| 认证   | JWT Token  |
+| 认证   | Bearer Token（数据库直验） |
 | 实时通信 | WebSocket  |
 
 ---
@@ -1220,7 +1220,7 @@ pc.online
 - [x] KV 变量 CRUD + 批量操作 + JSON 导入导出
 - [x] Vue3 管理后台（8 个页面：仪表盘 / 变量管理 / 历史记录 / 设备管理 / 告警规则 / Webhook / 系统日志 / 设置）
 - [x] Python SDK（9 个方法，开箱即用）
-- [x] JWT Token 认证 + 权限分级
+- [x] Bearer Token 认证 + 权限分级（数据库直验）
 - [x] WebSocket 实时推送（变量变更、设备心跳 → 前端即时更新）
 - [x] 定时清理过期历史数据
 - [x] 设备心跳超时自动离线检测
@@ -1287,7 +1287,7 @@ AI
 | 20:40 | 完成 Dashboard 统计/最近变更/DB状态/时间线 API |
 | 20:50 | 完成告警规则 CRUD + Webhook 管理 + 系统日志 API |
 | 21:00 | 完成设置 API（清理/备份/系统配置） |
-| 21:10 | JWT Token 认证 + APScheduler 定时任务 |
+| 21:10 | Token 认证 + APScheduler 定时任务 |
 | 21:20 | Python SDK（shared.py）完成 |
 | 21:40 | WebSocket 实时推送（变量变更 → 前端广播） |
 | 21:50 | 修复 UnboundLocalError（`_connections -= stale` → `.difference_update()`） |
@@ -1347,7 +1347,7 @@ AI
 |------|------|------|------|
 | 10:00 | 菜单切换后页面空白 | `<transition mode="out-in">` + Naive UI 组件渲染冲突，新组件未触发进入动画 | `<router-view>` 加 `:key="$route.fullPath"` 强制重渲染 |
 | 10:00 | 设备卡片点击无跳转 | 只有 Drawer 抽屉，无独立路由 | 新增 `/devices/:id` 路由 + 设备详情页 |
-| 10:00 | Token 硬编码 | 后端 SECRET_KEY / 前端 baseURL / SDK base_url 全部写死 | 三层统一支持环境变量 |
+| 10:00 | Token 硬编码 | 前端 baseURL / SDK base_url 全部写死 | 三层统一支持环境变量 |
 | 16:00 | 前端操作列显示代码 | render 返回 `h => [...]` 而非直接 VNode | 导入 `h`，直接 `return h('div', ...)` |
 | 16:30 | GET 无需 Token 太不安全 | 中间件只拦截写操作 | 改为全部操作需 Token，读=read 写=write |
 | 17:00 | Token 无用户关联 | tokens 表缺 username | 加 username 字段 + 登录 API + 前端登录页 |
@@ -1390,7 +1390,6 @@ AI
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `DATABASE_URL` | SQLite 数据库路径 | `sqlite:///./data/shared_center.db` |
-| `SECRET_KEY` | JWT 签名密钥 | `shared-center-secret-key-...` |
 | `CLEANUP_INTERVAL_HOURS` | 清理间隔（小时） | `24` |
 | `DEFAULT_RETENTION_DAYS` | 默认历史保留天数 | `180` |
 | `HEARTBEAT_TIMEOUT_SECONDS` | 心跳超时（秒） | `60` |

@@ -108,7 +108,7 @@
 | 框架 | FastAPI | 异步 Web 框架，自动生成 API 文档 |
 | ORM | SQLAlchemy | 数据库操作 |
 | 数据库 | SQLite | 轻量级，单文件部署 |
-| 认证 | JWT Token | 设备独立 Token |
+| 认证 | Bearer Token | 设备独立 Token，数据库直验 |
 | 实时通信 | WebSocket | 变量变更、设备心跳实时推送 |
 | 调度器 | APScheduler | 定时清理历史数据、心跳超时检测 |
 
@@ -503,7 +503,7 @@ service.xxx.version → 1.2.0
 │   ├── database.py               # SQLAlchemy 引擎
 │   ├── models.py                 # ORM 模型 (6 张表)
 │   ├── schemas.py                # Pydantic 请求/响应模型
-│   ├── auth.py                   # JWT 认证
+│   ├── auth.py                   # Token 认证
 │   ├── websocket_manager.py      # WebSocket 连接管理器
 │   ├── requirements.txt          # Python 依赖
 │   ├── routers/                  # API 路由
@@ -957,7 +957,7 @@ shell_command:
 - [x] FastAPI 后端 + 27 个 API 端点
 - [x] Vue3 管理后台（8 个页面）
 - [x] Python SDK
-- [x] JWT Token 认证
+- [x] Bearer Token 认证（数据库直验）
 - [x] WebSocket 实时推送
 - [x] 定时清理历史数据
 - [x] 设备心跳超时检测
