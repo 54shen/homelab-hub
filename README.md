@@ -496,6 +496,7 @@ service.xxx.version → 1.2.0
 ├── README.md                     # 项目说明（本文档）
 ├── DEVELOPMENT.md                # 开发设计文档 + 变更日志
 ├── PYTHON_API.md                 # Python 调用完全指南
+├── .env.example                  # 后端环境变量示例
 │
 ├── backend/                      # 后端 (FastAPI + SQLite)
 │   ├── main.py                   # 入口 + 调度器 + WebSocket
@@ -521,6 +522,7 @@ service.xxx.version → 1.2.0
 │       └── shared_center.db
 │
 ├── frontend/                     # 前端 (Vue3 + Naive UI)
+│   ├── .env.example              # 前端环境变量示例
 │   ├── index.html
 │   ├── vite.config.ts            # Vite 配置 + API 代理
 │   ├── package.json
@@ -555,7 +557,7 @@ service.xxx.version → 1.2.0
 │
 ├── .env                          # 环境变量
 ├── .gitignore
-└── 123.py                        # 测试脚本
+└── test.py                        # 测试脚本
 ```
 
 ---

@@ -51,6 +51,22 @@
       </n-card>
 
       <!-- 会话管理 -->
+      <!-- 用户管理 -->
+      <n-card title="用户管理" size="small" style="margin-bottom:16px">
+        <template #header-extra>
+          <n-button size="tiny" type="primary" @click="openUserCreate">新增用户</n-button>
+        </template>
+        <n-data-table
+          v-if="users.length > 0"
+          :columns="userColumns"
+          :data="users"
+          :bordered="false"
+          size="small"
+          :pagination="false"
+        />
+        <n-empty v-else description="暂无用户" style="margin:20px 0" />
+      </n-card>
+
       <n-card title="活跃会话" size="small">
         <template #header-extra>
           <n-popconfirm v-if="sessions.length > 1" @positive-click="handleKickAll">
@@ -85,6 +101,27 @@
         </n-space>
       </n-card>
     </div>
+
+    <!-- 用户编辑弹窗 -->
+    <n-modal v-model:show="userModalVisible" preset="card" :title="editingUserId ? '编辑用户' : '新增用户'" style="width:400px">
+      <n-form label-placement="left" label-width="80px">
+        <n-form-item label="用户名" required>
+          <n-input v-model:value="userForm.username" :disabled="!!editingUserId" placeholder="登录账号" />
+        </n-form-item>
+        <n-form-item label="密码">
+          <n-input v-model:value="userForm.password" type="password" :placeholder="editingUserId ? '留空不修改' : '至少4位'" />
+        </n-form-item>
+        <n-form-item label="权限">
+          <n-select v-model:value="userForm.permission" :options="permissionOptions" />
+        </n-form-item>
+      </n-form>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="userModalVisible = false">取消</n-button>
+          <n-button type="primary" @click="handleUserSave">保存</n-button>
+        </n-space>
+      </template>
+    </n-modal>
 
     <!-- Token 编辑弹窗 -->
     <n-modal v-model:show="tokenModalVisible" preset="card" :title="editingTokenId ? '编辑 Token' : '新增 Token'" style="width:440px">
@@ -122,6 +159,57 @@ import type { DbStatus } from '../types'
 
 const message = useMessage()
 
+// ---- 用户管理 ----
+interface UserEntry { id: number; username: string; permission: string; created_at: string }
+const users = ref<UserEntry[]>([])
+const userModalVisible = ref(false)
+const editingUserId = ref<number | null>(null)
+const userForm = ref({ username: '', password: '', permission: 'read' })
+
+const userColumns = [
+  { title: '用户名', key: 'username', width: 120 },
+  { title: '权限', key: 'permission', width: 80 },
+  { title: '创建时间', key: 'created_at', width: 160 },
+  {
+    title: '操作', key: 'actions', width: 120,
+    render(row: UserEntry) {
+      return h('div', { style: 'display:flex;gap:4px' }, [
+        h(NButton, { size: 'tiny', quaternary: true, onClick: () => openUserEdit(row) }, { default: () => '编辑' }),
+        h(NPopconfirm, { onPositiveClick: () => handleUserDelete(row.id) }, {
+          trigger: () => h(NButton, { size: 'tiny', quaternary: true, type: 'error' }, { default: () => '删除' }),
+          default: () => '确定删除？将同时删除该用户的所有Token和会话'
+        })
+      ])
+    }
+  }
+]
+
+function openUserCreate() {
+  editingUserId.value = null; userForm.value = { username: '', password: '', permission: 'read' }; userModalVisible.value = true
+}
+function openUserEdit(row: UserEntry) {
+  editingUserId.value = row.id; userForm.value = { username: row.username, password: '', permission: row.permission }; userModalVisible.value = true
+}
+async function handleUserSave() {
+  if (!userForm.value.username) { message.warning('请输入用户名'); return }
+  if (!editingUserId.value && userForm.value.password.length < 4) { message.warning('密码至少4位'); return }
+  try {
+    if (editingUserId.value) {
+      await http.put(`/users/${editingUserId.value}`, { password: userForm.value.password || undefined, permission: userForm.value.permission })
+    } else {
+      await http.post('/users', { username: userForm.value.username, password: userForm.value.password, permission: userForm.value.permission })
+    }
+    userModalVisible.value = false; message.success('已保存'); await loadUsers()
+  } catch (e: any) { message.error(e?.response?.data?.detail || '操作失败') }
+}
+async function handleUserDelete(id: number) {
+  try { await http.delete(`/users/${id}`); message.success('已删除'); await loadUsers() }
+  catch { message.error('删除失败') }
+}
+async function loadUsers() {
+  try { const resp = await http.get('/users'); users.value = resp.data } catch { users.value = [] }
+}
+
 // ---- 修改密码 ----
 const pwForm = ref({ oldPassword: '', newPassword: '' })
 const pwLoading = ref(false)
@@ -150,7 +238,7 @@ async function handleChangePassword() {
 
 // ---- Token ----
 interface TokenEntry {
-  id: number; name: string; token: string; token_full: string; permission: string; created_at: string
+  id: number; user_id: number | null; name: string; token: string; token_full: string; permission: string; created_at: string
 }
 const tokens = ref<TokenEntry[]>([])
 const tokenModalVisible = ref(false)
@@ -312,7 +400,7 @@ async function handleBackup() {
   } catch { /* */ }
 }
 
-onMounted(() => { loadTokens(); loadSessions(); loadDbStatus() })
+onMounted(() => { loadUsers(); loadTokens(); loadSessions(); loadDbStatus() })
 </script>
 
 <style scoped>

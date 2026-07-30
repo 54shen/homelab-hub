@@ -64,26 +64,46 @@ BASE_URL = "http://localhost:8000"      # 本地开发
 
 ### 认证说明（重要）
 
-**所有写操作（POST/PUT/DELETE）必须带 Token，读操作（GET）无需认证。**
+**所有 API 请求（含 GET 读操作）必须带 Token，仅 `/api/health` `/docs` `/ws` 公开。**
 
-首次启动后端时自动生成 Admin Token，启动日志中显示：
+首次启动后端时自动创建管理员账号：
 
 ```
 ==================================================
-  默认 Admin Token: sk-xxxxxxxxxxxx
-  请妥善保存！
+  Web 登录: admin / admin123
+  API Token: sk-xxxxxxxxxxxx
+  请尽快修改默认密码！
 ==================================================
 ```
 
-也可在前端设置页 → Token 管理中查看和新增 Token。
+- **Web 登录**：浏览器 `http://localhost:5173` → 账号 `admin` / 密码 `admin123` → 自动获取会话 Token
+- **API 调用**：设置页 → Token 管理 → 创建 Token（`sk-xxx`），用于脚本/设备调用
+- **SDK**：传入 Token 参数即可
 
 ```python
-# Token 配置
-TOKEN = "sk-3b911a96ffaa4464804c9bfed25c8233"  # 替换为你的 Token
+# Token 配置（Web 登录得到 ws-xxx，API 调用用 sk-xxx）
+# 也可设置环境变量: SHARED_CENTER_TOKEN
+TOKEN = "sk-xxxxxxxxxxxx"
+HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 
-# 每次写请求必须带 Header
-headers = {"Authorization": f"Bearer {TOKEN}"}
+import requests
+
+def api_get(path, **kwargs):
+    """所有 GET 请求自动带 Token"""
+    return requests.get(f"{BASE_URL}{path}", headers=HEADERS, **kwargs)
+
+def api_post(path, data):
+    """所有 POST 请求自动带 Token"""
+    return requests.post(f"{BASE_URL}{path}", json=data, headers=HEADERS)
+
+def api_put(path, data):
+    return requests.put(f"{BASE_URL}{path}", json=data, headers=HEADERS)
+
+def api_delete(path):
+    return requests.delete(f"{BASE_URL}{path}", headers=HEADERS)
 ```
+
+**以下所有 requests 示例默认使用上述辅助函数（自动带 Token）。**
 
 ### 三种调用方式总览
 
@@ -106,7 +126,7 @@ headers = {"Authorization": f"Bearer {TOKEN}"}
 resp = requests.post(f"{BASE_URL}/api/kv", json={
     "key": "pc.cpu", "value": "32", "type": "int", "source": "my-script"
 }, headers=headers)
-resp = requests.get(f"{BASE_URL}/api/kv/pc.cpu")  # 读操作无需 Token
+resp = api_get("/api/kv/pc.cpu", headers=headers)  # 读操作也需 Token
 
 # ==================================================
 # 方式三：urllib（标准库，零依赖）—— 写操作加 Header
@@ -266,7 +286,7 @@ else:
 import requests
 
 def get_kv(key):
-    resp = requests.get(f"{BASE_URL}/api/kv/{key}")
+    resp = api_get(f"/api/kv/{key}")
     if resp.status_code == 200:
         return resp.json()["value"]   # 只返回值
     elif resp.status_code == 404:
@@ -279,7 +299,7 @@ cpu = get_kv("pc.cpu")
 
 # 取完整对象
 def get_kv_obj(key):
-    resp = requests.get(f"{BASE_URL}/api/kv/{key}")
+    resp = api_get(f"/api/kv/{key}")
     return resp.json() if resp.status_code == 200 else None
 ```
 
@@ -348,7 +368,7 @@ ha_vars = client.list("ha.")
 import requests
 
 def list_kv(prefix=""):
-    resp = requests.get(f"{BASE_URL}/api/list", params={"prefix": prefix})
+    resp = api_get("/api/list", params={"prefix": prefix})
     return resp.json()
 
 # 调用
@@ -560,7 +580,7 @@ with open("kv_backup.json", "w", encoding="utf-8") as f:
 import requests
 
 def export_kv(filepath, prefix=""):
-    resp = requests.get(f"{BASE_URL}/api/kv/export", params={"prefix": prefix})
+    resp = api_get("/api/kv/export", params={"prefix": prefix})
     with open(filepath, "wb") as f:
         f.write(resp.content)
     print(f"已导出到 {filepath}")
@@ -646,7 +666,7 @@ def get_history(key=None, start=None, end=None, page=1, page_size=50):
         params["start"] = start
     if end:
         params["end"] = end
-    resp = requests.get(f"{BASE_URL}/api/history", params=params)
+    resp = api_get("/api/history", params=params)
     return resp.json()
 
 # 查询某个 key 的全部历史
@@ -700,7 +720,7 @@ def export_history_csv(filepath, key=None, start=None, end=None):
     if key: params["key"] = key
     if start: params["start"] = start
     if end: params["end"] = end
-    resp = requests.get(f"{BASE_URL}/api/history/export", params=params)
+    resp = api_get("/api/history/export", params=params)
     with open(filepath, "wb") as f:
         f.write(resp.content)
     print(f"已导出 {len(resp.content)} 字节到 {filepath}")
@@ -906,7 +926,7 @@ GET /api/devices
 import requests
 
 def list_devices():
-    resp = requests.get(f"{BASE_URL}/api/devices")
+    resp = api_get("/api/devices")
     return resp.json()
 
 devices = list_devices()
@@ -948,11 +968,11 @@ import requests
 
 def get_device_detail(device_id):
     # 设备基本信息
-    resp = requests.get(f"{BASE_URL}/api/devices/{device_id}")
+    resp = api_get("/api/devices/{device_id}")
     device = resp.json()
 
     # 该设备的变量
-    resp = requests.get(f"{BASE_URL}/api/devices/{device_id}/variables")
+    resp = api_get("/api/devices/{device_id}/variables")
     variables = resp.json()
 
     return device, variables
@@ -1019,7 +1039,7 @@ GET /api/dashboard/stats
 import requests
 
 def dashboard_stats():
-    resp = requests.get(f"{BASE_URL}/api/dashboard/stats")
+    resp = api_get("/api/dashboard/stats")
     return resp.json()
 
 stats = dashboard_stats()
@@ -1057,7 +1077,7 @@ GET /api/dashboard/recent?limit=10
 import requests
 
 def recent_changes(limit=10):
-    resp = requests.get(f"{BASE_URL}/api/dashboard/recent", params={"limit": limit})
+    resp = api_get("/api/dashboard/recent", params={"limit": limit})
     return resp.json()
 
 for item in recent_changes(5):
@@ -1087,7 +1107,7 @@ GET /api/dashboard/db-status
 
 ```python
 def db_status():
-    resp = requests.get(f"{BASE_URL}/api/dashboard/db-status")
+    resp = api_get("/api/dashboard/db-status")
     return resp.json()
 
 status = db_status()
@@ -1112,7 +1132,7 @@ GET /api/dashboard/timeline?limit=20
 
 ```python
 def timeline(limit=20):
-    resp = requests.get(f"{BASE_URL}/api/dashboard/timeline", params={"limit": limit})
+    resp = api_get("/api/dashboard/timeline", params={"limit": limit})
     return resp.json()["events"]
 
 for e in timeline(10):
@@ -1170,7 +1190,7 @@ create_alert(
 )
 
 # 查看所有规则
-resp = requests.get(f"{BASE_URL}/api/alerts")
+resp = api_get("/api/alerts")
 for rule in resp.json():
     enabled = "✅" if rule["enabled"] else "❌"
     print(f"{enabled} {rule['name']}: {rule['trigger_key']} {rule['condition']} {rule['threshold']}")
@@ -1240,7 +1260,7 @@ create_webhook(
 # alert.triggered  - 告警触发
 
 # 查看所有 Webhook
-resp = requests.get(f"{BASE_URL}/api/webhooks")
+resp = api_get("/api/webhooks")
 for wh in resp.json():
     print(f"{'✅' if wh['enabled'] else '❌'} {wh['name']}: {wh['url']}")
     print(f"  事件: {', '.join(wh['event_types']) or '全部'}")
@@ -1287,7 +1307,7 @@ def get_logs(level=None, module=None, page=1, page_size=50):
     params = {"page": page, "page_size": page_size}
     if level: params["level"] = level
     if module: params["module"] = module
-    resp = requests.get(f"{BASE_URL}/api/logs", params=params)
+    resp = api_get("/api/logs", params=params)
     return resp.json()
 
 # 查看所有错误日志
@@ -1302,7 +1322,7 @@ result = get_logs(module="alert")
 def export_logs_csv(filepath, level=None):
     params = {}
     if level: params["level"] = level
-    resp = requests.get(f"{BASE_URL}/api/logs/export", params=params)
+    resp = api_get("/api/logs/export", params=params)
     with open(filepath, "wb") as f:
         f.write(resp.content)
 ```
@@ -1373,7 +1393,7 @@ from datetime import datetime
 def export_full_backup(filepath=None):
     if filepath is None:
         filepath = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    resp = requests.get(f"{BASE_URL}/api/settings/backup")
+    resp = api_get("/api/settings/backup")
     with open(filepath, "wb") as f:
         f.write(resp.content)
     print(f"备份完成: {filepath}")
@@ -1399,7 +1419,7 @@ import requests
 
 # 读取配置
 def get_system_config():
-    resp = requests.get(f"{BASE_URL}/api/settings/system")
+    resp = api_get("/api/settings/system")
     return resp.json()
 
 config = get_system_config()

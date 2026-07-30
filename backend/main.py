@@ -53,10 +53,12 @@ def _ensure_admin_user():
         if not existing:
             # 创建默认管理员用户 密码: admin123
             import uuid
-            db.add(User(username="admin", password_hash=hash_password("admin123"), permission="admin"))
-            # 同时创建一个 admin token 供 API 调用
+            user = User(username="admin", password_hash=hash_password("admin123"), permission="admin")
+            db.add(user)
+            db.flush()  # 获取 user.id
+            # 同时创建关联的 admin token
             token_str = "sk-" + uuid.uuid4().hex
-            db.add(TokenModel(name="默认管理员", token=token_str, permission="admin"))
+            db.add(TokenModel(user_id=user.id, name="默认管理员", token=token_str, permission="admin"))
             db.commit()
             print(f"\n{'='*50}")
             print(f"  Web 登录: admin / admin123")
@@ -281,7 +283,7 @@ def list_tokens():
     try:
         tokens = db.query(TokenModel).order_by(TokenModel.id).all()
         return [{
-            "id": t.id, "name": t.name,
+            "id": t.id, "user_id": t.user_id, "name": t.name,
             "token": t.token[:8] + "••••" + t.token[-4:],
             "token_full": t.token,
             "permission": t.permission, "created_at": t.created_at
@@ -293,6 +295,7 @@ def list_tokens():
 class TokenCreate(PydanticBase):
     name: str = ""
     permission: str = "read"
+    user_id: int | None = None  # 关联用户ID
 
 @app.post("/api/tokens")
 def create_token(req: TokenCreate):
@@ -300,7 +303,7 @@ def create_token(req: TokenCreate):
     try:
         import uuid
         token_str = "sk-" + uuid.uuid4().hex
-        t = TokenModel(name=req.name or "unnamed", token=token_str, permission=req.permission)
+        t = TokenModel(name=req.name or "unnamed", token=token_str, permission=req.permission, user_id=req.user_id)
         db.add(t)
         db.commit()
         return {"success": True, "token": token_str, "id": t.id}
@@ -335,6 +338,86 @@ def delete_token(token_id: int):
         if t:
             db.query(SessionModel).filter(SessionModel.user_id == t.id).delete()
             db.delete(t)
+            db.commit()
+        return {"success": True, "message": "已删除"}
+    finally:
+        db.close()
+
+
+# ---- 用户管理 API ----
+@app.get("/api/users")
+def list_users():
+    db = SessionLocal()
+    try:
+        users = db.query(User).order_by(User.id).all()
+        return [{
+            "id": u.id, "username": u.username,
+            "permission": u.permission, "created_at": u.created_at
+        } for u in users]
+    finally:
+        db.close()
+
+
+class UserCreate(PydanticBase):
+    username: str
+    password: str
+    permission: str = "read"
+
+@app.post("/api/users")
+def create_user(req: UserCreate):
+    db = SessionLocal()
+    try:
+        if db.query(User).filter(User.username == req.username).first():
+            return JSONResponse(status_code=400, content={"detail": "用户名已存在"})
+        if len(req.password) < 4:
+            return JSONResponse(status_code=400, content={"detail": "密码至少 4 位"})
+
+        user = User(username=req.username, password_hash=hash_password(req.password), permission=req.permission)
+        db.add(user)
+        db.flush()
+        # 为新用户自动创建一个 API Token
+        import uuid
+        token_str = "sk-" + uuid.uuid4().hex
+        db.add(TokenModel(user_id=user.id, name=f"{req.username}的Token", token=token_str, permission=req.permission))
+        db.commit()
+        return {"success": True, "id": user.id, "token": token_str}
+    finally:
+        db.close()
+
+
+class UserUpdate(PydanticBase):
+    password: str | None = None
+    permission: str | None = None
+
+@app.put("/api/users/{user_id}")
+def update_user(user_id: int, req: UserUpdate):
+    db = SessionLocal()
+    try:
+        u = db.query(User).filter(User.id == user_id).first()
+        if not u:
+            return JSONResponse(status_code=404, content={"detail": "用户不存在"})
+        if req.password:
+            if len(req.password) < 4:
+                return JSONResponse(status_code=400, content={"detail": "密码至少 4 位"})
+            u.password_hash = hash_password(req.password)
+        if req.permission is not None:
+            u.permission = req.permission
+        db.commit()
+        return {"success": True, "message": "已更新"}
+    finally:
+        db.close()
+
+
+@app.delete("/api/users/{user_id}")
+def delete_user(user_id: int):
+    db = SessionLocal()
+    try:
+        u = db.query(User).filter(User.id == user_id).first()
+        if u:
+            # 删除关联的 Token 和会话
+            db.query(TokenModel).filter(TokenModel.user_id == user_id).delete()
+            db.query(SessionModel).filter(SessionModel.user_id == user_id).delete()
+            db.delete(u)
             db.commit()
         return {"success": True, "message": "已删除"}
     finally:

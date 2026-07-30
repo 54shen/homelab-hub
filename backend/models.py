@@ -70,11 +70,12 @@ class User(Base):
     created_at = Column(String(32), default=_now)
 
 
-# ---- Token 表（API 调用用） ----
+# ---- Token 表（API 调用用，关联用户） ----
 class Token(Base):
     __tablename__ = "tokens"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=True)  # NULL=系统Token，非NULL=用户Token
     name = Column(String(128), unique=True, nullable=False)
     token = Column(String(256), nullable=False)
     permission = Column(String(32), default="read")
