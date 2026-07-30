@@ -45,14 +45,17 @@ async def set_kv(req: KvSetRequest, db: Session = Depends(get_db), token=Depends
 
     if entry:
         old = entry.value
-        entry.value = str(req.value)
+        new_val = str(req.value)
+        # 值没变就不写历史（避免重复心跳刷屏）
+        if old != new_val:
+            _log_history(db, req.key, old, new_val, req.source)
+        entry.value = new_val
         entry.type = req.type
         entry.source = req.source
         entry.retention_days = req.retention_days
         entry.updated_at = now_str
         if req.expire_seconds is not None:
             entry.expire_seconds = req.expire_seconds
-        _log_history(db, req.key, old, str(req.value), req.source)
     else:
         entry = KvEntry(
             key=req.key,
