@@ -1,65 +1,75 @@
 <template>
   <div class="refresh-control">
-    <template v-for="opt in resolvedOptions" :key="opt.value">
-      <span
-        class="rc-btn"
-        :class="{ active: modelValue === opt.value || (opt.value === -1 && showCustomInput) }"
-        @click="opt.value === -1 ? toggleCustom() : $emit('update:modelValue', opt.value)"
-      >{{ opt.label }}</span>
+    <!-- 预设按钮 -->
+    <span
+      v-for="opt in presets"
+      :key="opt.value"
+      class="rc-btn"
+      :class="{ active: modelValue === opt.value }"
+      @click="$emit('update:modelValue', opt.value)"
+    >{{ opt.label }}</span>
+
+    <!-- 自定义值按钮（非预设值时显示） -->
+    <span
+      v-if="!isPreset && !showCustomInput"
+      class="rc-btn active"
+      @click="startEdit()"
+    >{{ formatValue(modelValue) }}</span>
+
+    <!-- + 按钮 / 自定义输入 -->
+    <template v-if="showCustomInput">
+      <input
+        ref="customInputRef"
+        class="rc-input"
+        v-model="customText"
+        placeholder="0.5"
+        @keydown.enter="onCustomConfirm"
+        @blur="onCustomBlur"
+      />
     </template>
-    <!-- 自定义输入 -->
-    <input
-      v-if="showCustomInput"
-      ref="customInputRef"
-      class="rc-input"
-      v-model="customText"
-      placeholder="秒"
-      @keydown.enter="onCustomConfirm"
-      @blur="onCustomBlur"
-    />
+    <span
+      v-else
+      class="rc-btn"
+      :class="{ active: false }"
+      @click="startEdit()"
+    >+</span>
+
     <span v-if="modelValue > 0" class="rc-dot" :style="{ animationDuration: Math.max(modelValue, 0.1) + 's' }"></span>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, nextTick } from 'vue'
 
-const props = defineProps<{
-  modelValue: number
-  /** 自定义额外的选项，如 [{ label: '0.5s', value: 0.5 }] */
-  customOptions?: { label: string; value: number }[]
-}>()
+const props = defineProps<{ modelValue: number }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: number] }>()
+
+const presets = [
+  { label: '关', value: 0 },
+  { label: '1s', value: 1 },
+  { label: '3s', value: 3 },
+  { label: '5s', value: 5 },
+]
+
+const isPreset = computed(() => presets.some(p => p.value === props.modelValue))
 
 const showCustomInput = ref(false)
 const customText = ref('')
 const customInputRef = ref<HTMLInputElement | null>(null)
 
-const baseOptions = [
-  { label: '关', value: 0 },
-  { label: '1s', value: 1 },
-  { label: '3s', value: 3 },
-  { label: '5s', value: 5 },
-  { label: '+', value: -1 },
-]
+function formatValue(v: number): string {
+  if (v >= 1) return `${v}s`
+  return `${(v * 1000).toFixed(0)}ms`
+}
 
-const resolvedOptions = computed(() => {
-  const opts = props.customOptions ? [...props.customOptions] : []
-  for (const b of baseOptions) {
-    if (!opts.some(o => o.value === b.value)) {
-      opts.push(b)
-    }
-  }
-  return opts
-})
-
-function toggleCustom() {
-  showCustomInput.value = !showCustomInput.value
-  if (showCustomInput.value) {
-    customText.value = ''
-    setTimeout(() => customInputRef.value?.focus(), 50)
-  }
+function startEdit() {
+  showCustomInput.value = true
+  customText.value = props.modelValue > 0 ? String(props.modelValue) : ''
+  nextTick(() => {
+    customInputRef.value?.focus()
+    customInputRef.value?.select()
+  })
 }
 
 function onCustomBlur() {
@@ -75,7 +85,6 @@ function onCustomConfirm() {
   if (!isNaN(val) && val >= 0) {
     emit('update:modelValue', val)
     showCustomInput.value = false
-    customText.value = ''
   }
 }
 </script>
@@ -98,6 +107,7 @@ function onCustomConfirm() {
   transition: all 0.15s;
   user-select: none;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .rc-btn:hover { color: var(--text-primary, #1E293B); }
 .rc-btn.active {
@@ -107,18 +117,15 @@ function onCustomConfirm() {
   box-shadow: 0 1px 3px rgba(0,0,0,.08);
 }
 .rc-input {
-  width: 52px;
+  width: 44px;
   font-size: 12px;
   padding: 4px 6px;
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--color-primary, #5B8DEF);
   border-radius: 6px;
   text-align: center;
   outline: none;
   color: var(--text-primary);
   background: #fff;
-}
-.rc-input:focus {
-  border-color: var(--color-primary, #5B8DEF);
 }
 .rc-dot {
   width: 6px; height: 6px;
