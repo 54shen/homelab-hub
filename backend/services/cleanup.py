@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from database import SessionLocal
 from models import KvEntry, KvHistory, Device
-from config import DEFAULT_RETENTION_DAYS, HEARTBEAT_TIMEOUT_SECONDS
+from config import DEFAULT_RETENTION_DAYS, DEFAULT_HEARTBEAT_TIMEOUT
 
 
 def cleanup_history():
@@ -41,7 +41,7 @@ def check_device_offline():
         offline_list = []
 
         for d in online_devices:
-            timeout = d.heartbeat_timeout if d.heartbeat_timeout and d.heartbeat_timeout > 0 else HEARTBEAT_TIMEOUT_SECONDS
+            timeout = d.heartbeat_timeout if d.heartbeat_timeout and d.heartbeat_timeout > 0 else DEFAULT_HEARTBEAT_TIMEOUT
             cutoff = (now - timedelta(seconds=timeout)).strftime("%Y-%m-%d %H:%M:%S")
             if d.last_heartbeat < cutoff:
                 d.online = False

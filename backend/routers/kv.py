@@ -92,6 +92,19 @@ async def set_kv(req: KvSetRequest, db: Session = Depends(get_db), token=Depends
 
     _set_kv_sync(req, db)
     db.commit()
+
+    # 心跳超时 KV 同步到 Device 表
+    if req.key.endswith(".心跳超时"):
+        try:
+            device_name = req.key.rsplit(".", 1)[0]
+            from models import Device
+            dev = db.query(Device).filter(Device.name == device_name).first()
+            if dev:
+                dev.heartbeat_timeout = int(req.value)
+                db.commit()
+        except (ValueError, Exception):
+            pass
+
     await broadcast("kv.changed", {"key": req.key, "value": str(req.value), "source": req.source})
 
     # 值变化时异步检查告警规则

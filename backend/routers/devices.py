@@ -12,6 +12,8 @@ from schemas import (
 )
 from websocket_manager import broadcast
 from auth import auth_write
+from config import DEFAULT_HEARTBEAT_TIMEOUT
+from models import KvEntry
 
 router = APIRouter(prefix="/api", tags=["设备管理"])
 
@@ -20,6 +22,23 @@ def _gen_device_id(name: str, typ: str) -> str:
     import hashlib
     raw = f"{name}:{typ}"
     return hashlib.md5(raw.encode()).hexdigest()[:12]
+
+
+def _sync_timeout_kv(db: Session, key: str, timeout: int):
+    """同步心跳超时 KV 变量（不存在则创建，存在则更新）"""
+    entry = db.query(KvEntry).filter(KvEntry.key == key).first()
+    if entry:
+        if entry.value != str(timeout):
+            entry.value = str(timeout)
+            entry.updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        db.add(KvEntry(
+            key=key,
+            value=str(timeout),
+            type="int",
+            source="system",
+            retention_days=3650
+        ))
 
 
 @router.get("/devices", response_model=list[DeviceOut])
@@ -50,6 +69,9 @@ def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_db), t
     device_id = _gen_device_id(req.name, req.type)
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    # 心跳超时 KV key
+    timeout_kv_key = f"{req.name}.心跳超时"
+
     existing = db.query(Device).filter(Device.id == device_id).first()
     if existing:
         existing.name = req.name
@@ -59,9 +81,14 @@ def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_db), t
         existing.mac = req.mac or existing.mac
         existing.os = req.os or existing.os
         existing.group = req.group or existing.group
-        existing.heartbeat_timeout = req.heartbeat_timeout
         existing.last_heartbeat = now_str
+        # 仅在 agent 明确传入 >0 时更新超时
+        if req.heartbeat_timeout > 0:
+            existing.heartbeat_timeout = req.heartbeat_timeout
+        # 同步 KV（首次或 agent 传入时）
+        _sync_timeout_kv(db, timeout_kv_key, existing.heartbeat_timeout or DEFAULT_HEARTBEAT_TIMEOUT)
     else:
+        timeout = req.heartbeat_timeout if req.heartbeat_timeout > 0 else DEFAULT_HEARTBEAT_TIMEOUT
         db.add(Device(
             id=device_id,
             name=req.name,
@@ -72,9 +99,12 @@ def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_db), t
             os=req.os,
             group=req.group,
             online=False,
+            heartbeat_timeout=timeout,
             last_heartbeat=now_str,
             registered_at=now_str
         ))
+        # 首次注册：创建 KV
+        _sync_timeout_kv(db, timeout_kv_key, timeout)
 
     db.commit()
     return ApiResponse(success=True, message="OK", data={"device_id": device_id})

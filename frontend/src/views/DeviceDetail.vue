@@ -97,7 +97,8 @@ import * as echarts from 'echarts'
 import StatusBadge from '../components/StatusBadge.vue'
 import RefreshControl from '../components/RefreshControl.vue'
 import { useRefreshInterval } from '../composables/useRefreshInterval'
-import { deviceApi } from '../api'
+import { deviceApi, historyApi } from '../api'
+import { useWebSocket } from '../composables/useWebSocket'
 import type { Device, KvEntry } from '../types'
 
 const route = useRoute()
@@ -109,6 +110,44 @@ const device = ref<Device | null>(null)
 const variables = ref<KvEntry[]>([])
 const heartbeatChartRef = ref<HTMLElement | null>(null)
 let hbChart: echarts.ECharts | null = null
+const cpuHistory = ref<[string, number][]>([])
+const memHistory = ref<[string, number][]>([])
+
+function updateChart() {
+  if (!hbChart) return
+  hbChart.setOption({
+    xAxis: { data: cpuHistory.value.map(v => v[0]) },
+    series: [
+      { name: 'CPU', data: cpuHistory.value.map(v => v[1]) },
+      { name: '内存', data: memHistory.value.map(v => v[1]) }
+    ]
+  })
+}
+
+async function loadHistory() {
+  if (!device.value) return
+  const now = new Date().toISOString()
+  const hourAgo = new Date(Date.now() - 3600000).toISOString()
+  try {
+    const [cpuRes, memRes] = await Promise.all([
+      historyApi.list({ key: `${device.value.name}.CPU使用率`, start: hourAgo, end: now, page_size: 30 }),
+      historyApi.list({ key: `${device.value.name}.内存使用率`, start: hourAgo, end: now, page_size: 30 })
+    ])
+    if (cpuRes.data?.items) {
+      cpuHistory.value = cpuRes.data.items
+        .filter(h => h.new_value && !isNaN(Number(h.new_value)))
+        .map(h => [new Date(h.changed_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), Number(h.new_value)])
+        .reverse()
+    }
+    if (memRes.data?.items) {
+      memHistory.value = memRes.data.items
+        .filter(h => h.new_value && !isNaN(Number(h.new_value)))
+        .map(h => [new Date(h.changed_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), Number(h.new_value)])
+        .reverse()
+    }
+    updateChart()
+  } catch { /* history not critical */ }
+}
 
 const varColumns = [
   { title: 'Key', key: 'key', width: 200 },
@@ -156,23 +195,50 @@ watch(refreshInterval, startTimer)
 
 onMounted(async () => {
   await loadData()
+  await loadHistory()
   await nextTick()
   if (heartbeatChartRef.value) {
     hbChart = echarts.init(heartbeatChartRef.value)
     hbChart.setOption({
-      grid: { top: 8, right: 12, bottom: 24, left: 40 },
+      tooltip: { trigger: 'axis' as const },
+      legend: { data: ['CPU', '内存'], right: 0, textStyle: { fontSize: 11 } },
+      grid: { top: 32, right: 12, bottom: 24, left: 40 },
       xAxis: { type: 'category' as const, data: [], axisLabel: { fontSize: 10 } },
       yAxis: { type: 'value' as const, max: 100, axisLabel: { fontSize: 10, formatter: '{value}%' } },
-      series: [{
-        data: [], type: 'line' as const, smooth: true, symbol: 'none' as const,
-        lineStyle: { color: '#5B8DEF', width: 2 },
-        areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#5B8DEF30' }, { offset: 1, color: '#5B8DEF04' }]) }
-      }]
+      series: [
+        {
+          name: 'CPU', data: [], type: 'line' as const, smooth: true, symbol: 'none' as const,
+          lineStyle: { color: '#5B8DEF', width: 2 },
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#5B8DEF30' }, { offset: 1, color: '#5B8DEF04' }]) }
+        },
+        {
+          name: '内存', data: [], type: 'line' as const, smooth: true, symbol: 'none' as const,
+          lineStyle: { color: '#22C55E', width: 2 },
+          areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#22C55E30' }, { offset: 1, color: '#22C55E04' }]) }
+        }
+      ]
     })
+    updateChart()
   }
+  // WebSocket 实时更新
+  const { on } = useWebSocket()
+  on((event, data: any) => {
+    if (event === 'device.heartbeat' && data.name === device.value?.name) {
+      const ts = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      if (data.cpu !== null && data.cpu !== undefined) {
+        cpuHistory.value.push([ts, data.cpu])
+        if (cpuHistory.value.length > 30) cpuHistory.value.shift()
+      }
+      if (data.memory !== null && data.memory !== undefined) {
+        memHistory.value.push([ts, data.memory])
+        if (memHistory.value.length > 30) memHistory.value.shift()
+      }
+      updateChart()
+    }
+  })
 })
 
-onUnmounted(() => { if (timer) clearInterval(timer) })
+onUnmounted(() => { if (timer) clearInterval(timer); hbChart?.dispose() })
 </script>
 
 <style scoped>

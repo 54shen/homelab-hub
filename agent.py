@@ -307,8 +307,10 @@ class Agent:
             "mac": sys_info["mac"],
             "os": f"{sys_info['os']} {sys_info['os_release']}",
             "group": self.cfg["device_group"],
-            "heartbeat_timeout": self.cfg.get("heartbeat_timeout", 0),
         }
+        timeout = self.cfg.get("heartbeat_timeout", 0)
+        if timeout > 0:
+            payload["heartbeat_timeout"] = timeout
 
         result = self._post("/api/device/register", payload,
                             retry=self.cfg["retry_times"],
@@ -334,7 +336,6 @@ class Agent:
             "disk": sys_info["disk"],
             "uptime": sys_info["uptime"],
             "ip": sys_info["ip"],
-            "heartbeat_timeout": self.cfg.get("heartbeat_timeout", 0),
         }
 
         result = self._post("/api/device/heartbeat", payload,
