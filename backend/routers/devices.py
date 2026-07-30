@@ -11,7 +11,7 @@ from schemas import (
     DeviceOut, KvEntryOut, ApiResponse
 )
 from websocket_manager import broadcast
-from auth import auth_optional
+from auth import auth_write
 
 router = APIRouter(prefix="/api", tags=["设备管理"])
 
@@ -46,7 +46,7 @@ def get_device_variables(device_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/device/register", response_model=ApiResponse)
-def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
     device_id = _gen_device_id(req.name, req.type)
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -80,7 +80,7 @@ def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_db), _
 
 
 @router.post("/device/heartbeat", response_model=ApiResponse)
-async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
     # 尝试按名称匹配
     device = db.query(Device).filter(Device.name == req.name).first()
     if not device:
@@ -117,7 +117,7 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
 
 
 @router.delete("/devices/{device_id}", response_model=ApiResponse)
-def unregister_device(device_id: str, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+def unregister_device(device_id: str, db: Session = Depends(get_db), token=Depends(auth_write)):
     d = db.query(Device).filter(Device.id == device_id).first()
     if d:
         db.delete(d)

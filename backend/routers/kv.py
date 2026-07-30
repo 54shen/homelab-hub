@@ -10,7 +10,7 @@ from schemas import (
     KvSetRequest, KvBatchRequest, KvBatchDeleteRequest,
     KvEntryOut, ApiResponse
 )
-from auth import auth_optional
+from auth import auth_write
 import json
 
 router = APIRouter(prefix="/api", tags=["KV 变量"])
@@ -39,7 +39,7 @@ def get_kv(key: str, db: Session = Depends(get_db)):
 
 
 @router.post("/kv", response_model=ApiResponse)
-async def set_kv(req: KvSetRequest, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+async def set_kv(req: KvSetRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
     entry = db.query(KvEntry).filter(KvEntry.key == req.key).first()
     now_str = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -72,14 +72,14 @@ async def set_kv(req: KvSetRequest, db: Session = Depends(get_db), _auth=Depends
 
 
 @router.post("/kv/batch", response_model=ApiResponse)
-def batch_set_kv(req: KvBatchRequest, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+def batch_set_kv(req: KvBatchRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
     for item in req.items:
         set_kv(item, db)
     return ApiResponse(success=True, message=f"已写入 {len(req.items)} 个变量")
 
 
 @router.delete("/kv/{key}", response_model=ApiResponse)
-async def delete_kv(key: str, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+async def delete_kv(key: str, db: Session = Depends(get_db), token=Depends(auth_write)):
     entry = db.query(KvEntry).filter(KvEntry.key == key).first()
     if entry:
         _log_history(db, key, entry.value, "(已删除)", "admin")
@@ -90,7 +90,7 @@ async def delete_kv(key: str, db: Session = Depends(get_db), _auth=Depends(auth_
 
 
 @router.post("/kv/batch-delete", response_model=ApiResponse)
-def batch_delete_kv(req: KvBatchDeleteRequest, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+def batch_delete_kv(req: KvBatchDeleteRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
     for key in req.keys:
         delete_kv(key, db)
     return ApiResponse(success=True, message=f"已删除 {len(req.keys)} 个变量")
@@ -110,7 +110,7 @@ def export_kv(prefix: str | None = Query(None), db: Session = Depends(get_db)):
 
 
 @router.post("/kv/import", response_model=ApiResponse)
-async def import_kv(file: __import__("fastapi").UploadFile, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+async def import_kv(file: __import__("fastapi").UploadFile, db: Session = Depends(get_db), token=Depends(auth_write)):
     content = await file.read()
     items = json.loads(content)
     count = 0

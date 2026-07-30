@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
-from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, AUTH_REQUIRED
+from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 from database import get_db
 from models import Token as TokenModel
 
@@ -62,28 +62,24 @@ def verify_token(token_str: str, db: Session) -> Optional[TokenModel]:
     return db.query(TokenModel).filter(TokenModel.token == token_str).first()
 
 
-def auth_optional(
+def auth_write(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db)
-) -> Optional[TokenModel]:
-    """可选的认证检查。
-    - AUTH_REQUIRED=false: 直接放行，返回 None
-    - AUTH_REQUIRED=true: 无 Token → 401，有 Token → 验证通过返回 TokenModel
+) -> TokenModel:
+    """写操作强制认证。
+    无 Token → 401，Token 无效 → 401，权限不足 → 403
     """
-    if not AUTH_REQUIRED:
-        return None
-
     if credentials is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="缺少认证 Token，请在 Header 中添加 Authorization: Bearer <token>")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="需要认证 Token，请在 Header 中添加: Authorization: Bearer <token>")
 
-    try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
-        token_value = payload.get("sub", "")
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token 无效或已过期")
-
-    token_record = db.query(TokenModel).filter(TokenModel.token == token_value).first()
+    token_str = credentials.credentials
+    token_record = db.query(TokenModel).filter(TokenModel.token == token_str).first()
     if not token_record:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token 不存在或已被删除")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token 无效或不存在")
 
-    return token_record  # 当前 Token 记录
+    if token_record.permission not in ("write", "admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail=f"权限不足（当前: {token_record.permission}，需要: write 或 admin）")
+
+    return token_record

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import WebhookConfig
 from schemas import WebhookCreate, WebhookUpdate, WebhookOut, ApiResponse
-from auth import auth_optional
+from auth import auth_write
 import httpx
 
 router = APIRouter(prefix="/api", tags=["Webhook"])
@@ -19,7 +19,7 @@ def list_webhooks(db: Session = Depends(get_db)):
 
 
 @router.post("/webhooks", response_model=ApiResponse)
-def create_webhook(req: WebhookCreate, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+def create_webhook(req: WebhookCreate, db: Session = Depends(get_db), token=Depends(auth_write)):
     wh = WebhookConfig(**req.dict())
     db.add(wh)
     db.commit()
@@ -27,7 +27,7 @@ def create_webhook(req: WebhookCreate, db: Session = Depends(get_db), _auth=Depe
 
 
 @router.put("/webhooks/{webhook_id}", response_model=ApiResponse)
-def update_webhook(webhook_id: int, req: WebhookUpdate, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+def update_webhook(webhook_id: int, req: WebhookUpdate, db: Session = Depends(get_db), token=Depends(auth_write)):
     wh = db.query(WebhookConfig).filter(WebhookConfig.id == webhook_id).first()
     if not wh:
         raise HTTPException(404, "Webhook 不存在")
@@ -38,7 +38,7 @@ def update_webhook(webhook_id: int, req: WebhookUpdate, db: Session = Depends(ge
 
 
 @router.delete("/webhooks/{webhook_id}", response_model=ApiResponse)
-def delete_webhook(webhook_id: int, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+def delete_webhook(webhook_id: int, db: Session = Depends(get_db), token=Depends(auth_write)):
     wh = db.query(WebhookConfig).filter(WebhookConfig.id == webhook_id).first()
     if wh:
         db.delete(wh)
@@ -47,7 +47,7 @@ def delete_webhook(webhook_id: int, db: Session = Depends(get_db), _auth=Depends
 
 
 @router.post("/webhooks/{webhook_id}/test", response_model=ApiResponse)
-async def test_webhook(webhook_id: int, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+async def test_webhook(webhook_id: int, db: Session = Depends(get_db), token=Depends(auth_write)):
     wh = db.query(WebhookConfig).filter(WebhookConfig.id == webhook_id).first()
     if not wh:
         raise HTTPException(404, "Webhook 不存在")

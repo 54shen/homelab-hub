@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import KvEntry, KvHistory, Token as TokenModel
 from schemas import SystemConfigUpdate, ApiResponse
-from auth import auth_optional
+from auth import auth_write
 from config import DEFAULT_RETENTION_DAYS
 import os, uuid, json
 
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api", tags=["设置"])
 
 
 @router.post("/settings/clean-history", response_model=ApiResponse)
-def clean_history(db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+def clean_history(db: Session = Depends(get_db), token=Depends(auth_write)):
     """手动清理过期历史数据"""
     deleted_total = 0
     entries = db.query(KvEntry).all()
@@ -61,7 +61,7 @@ def get_system_config(db: Session = Depends(get_db)):
 
 
 @router.put("/settings/system", response_model=ApiResponse)
-def save_system_config(cfg: SystemConfigUpdate, db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+def save_system_config(cfg: SystemConfigUpdate, db: Session = Depends(get_db), token=Depends(auth_write)):
     # 运行时更新配置（单进程有效）
     import config
     if cfg.cleanup_interval_hours is not None:

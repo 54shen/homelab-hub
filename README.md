@@ -203,7 +203,7 @@ cd backend && python main.py   # 直接运行或用 gunicorn
 ### 基础信息
 
 - 基础路径: `/api`
-- 认证方式: `Authorization: Bearer <token>`
+- 认证方式: **写操作**（POST/PUT/DELETE）必须 `Authorization: Bearer <token>`，**读操作**（GET）无需认证
 - 内容类型: `application/json`
 
 ### 端点总览（27 个）

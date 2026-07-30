@@ -62,30 +62,54 @@ BASE_URL = "http://localhost:8000"      # 本地开发
 # BASE_URL = "https://your-server.com"    # 公网
 ```
 
+### 认证说明（重要）
+
+**所有写操作（POST/PUT/DELETE）必须带 Token，读操作（GET）无需认证。**
+
+首次启动后端时自动生成 Admin Token，启动日志中显示：
+
+```
+==================================================
+  默认 Admin Token: sk-xxxxxxxxxxxx
+  请妥善保存！
+==================================================
+```
+
+也可在前端设置页 → Token 管理中查看和新增 Token。
+
+```python
+# Token 配置
+TOKEN = "sk-3b911a96ffaa4464804c9bfed25c8233"  # 替换为你的 Token
+
+# 每次写请求必须带 Header
+headers = {"Authorization": f"Bearer {TOKEN}"}
+```
+
 ### 三种调用方式总览
 
 ```python
 # ==================================================
-# 方式一：SDK（推荐，最简单）
+# 方式一：SDK（推荐）——传入 token 参数即可
 # ==================================================
 from shared import Client
 
-client = Client(base_url=BASE_URL, token="sk-xxx", source="my-script")
+client = Client(base_url=BASE_URL, token=TOKEN, source="my-script")
 client.set("pc.cpu", "32", typ="int")
 cpu = client.get("pc.cpu")
 
 # ==================================================
-# 方式二：requests 库
+# 方式二：requests —— 写操作加 headers
 # ==================================================
 import requests
 
+headers = {"Authorization": f"Bearer {TOKEN}"}
 resp = requests.post(f"{BASE_URL}/api/kv", json={
     "key": "pc.cpu", "value": "32", "type": "int", "source": "my-script"
-})
-resp = requests.get(f"{BASE_URL}/api/kv/pc.cpu")
+}, headers=headers)
+resp = requests.get(f"{BASE_URL}/api/kv/pc.cpu")  # 读操作无需 Token
 
 # ==================================================
-# 方式三：urllib（标准库，零依赖）
+# 方式三：urllib（标准库，零依赖）—— 写操作加 Header
 # ==================================================
 import json, urllib.request
 

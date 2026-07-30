@@ -2,8 +2,9 @@
 # Shared Center — FastAPI 主入口
 # ============================================================
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from apscheduler.schedulers.background import BackgroundScheduler
 from database import init_db, SessionLocal
 from models import Token as TokenModel
@@ -61,6 +62,36 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---- Auth 中间件：写操作强制 Token 认证 ----
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    # 仅拦截写操作（POST / PUT / DELETE / PATCH）
+    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        # 跳过一些公开端点
+        public_paths = ("/api/health", "/docs", "/openapi.json", "/redoc")
+        if not any(request.url.path.startswith(p) for p in public_paths):
+            auth_header = request.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer "):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "需要认证 Token，请在 Header 中添加: Authorization: Bearer <token>"}
+                )
+            token_str = auth_header[7:]  # 去掉 "Bearer "
+            db = SessionLocal()
+            try:
+                # 直接查数据库验证 Token 字符串
+                token_record = db.query(TokenModel).filter(TokenModel.token == token_str).first()
+                if not token_record:
+                    return JSONResponse(status_code=401, content={"detail": "Token 不存在"})
+                if token_record.permission not in ("write", "admin"):
+                    return JSONResponse(status_code=403, content={"detail": "权限不足（需要 write 或 admin）"})
+            finally:
+                db.close()
+
+    return await call_next(request)
+
 
 # ---- 注册路由 ----
 from routers import kv, history, devices, dashboard, alerts, webhooks, logs, settings

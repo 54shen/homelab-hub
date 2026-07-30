@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import SystemLog
 from schemas import SystemLogOut, SystemLogListOut, ApiResponse
-from auth import auth_optional
+from auth import auth_write
 
 router = APIRouter(prefix="/api", tags=["系统日志"])
 
@@ -60,7 +60,7 @@ def export_logs(
 
 
 @router.post("/logs/clear", response_model=ApiResponse)
-def clear_logs(db: Session = Depends(get_db), _auth=Depends(auth_optional)):
+def clear_logs(db: Session = Depends(get_db), token=Depends(auth_write)):
     db.query(SystemLog).delete()
     db.commit()
     return ApiResponse(success=True, message="已清空")
