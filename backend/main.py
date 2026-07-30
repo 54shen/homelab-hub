@@ -163,13 +163,19 @@ class LoginRequest(PydanticBase):
     password: str
 
 @app.post("/api/auth/login")
-def login(req: LoginRequest):
+def login(req: LoginRequest, request: Request):
     """Web 登录：账号 + 密码 → 返回会话 Token（仅 Web 有效）"""
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.username == req.username).first()
         if not user or not verify_password(req.password, user.password_hash):
             return JSONResponse(status_code=401, content={"detail": "账号或密码错误"})
+
+        # 获取客户端 IP
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        client_ip = forwarded.split(",")[0].strip() if forwarded else (
+            request.client.host if request.client else ""
+        )
 
         # 生成会话专用 Token（不污染 API Token 表）
         import uuid
@@ -180,8 +186,8 @@ def login(req: LoginRequest):
             username=user.username,
             permission=user.permission,
             session_token=session_token,
-            ip="",
-            user_agent=""
+            ip=client_ip,
+            user_agent=request.headers.get("User-Agent", "")[:256]
         )
         db.add(session)
         db.commit()
@@ -208,7 +214,7 @@ def change_password(req: PasswordChangeRequestV2):
     try:
         user = db.query(User).filter(User.username == req.username).first()
         if not user or not verify_password(req.old_password, user.password_hash):
-            return JSONResponse(status_code=401, content={"detail": "旧密码错误"})
+            return JSONResponse(status_code=400, content={"detail": "旧密码错误"})
 
         if len(req.new_password) < 4:
             return JSONResponse(status_code=400, content={"detail": "新密码至少 4 位"})

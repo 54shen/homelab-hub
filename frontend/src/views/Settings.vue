@@ -52,6 +52,14 @@
 
       <!-- 会话管理 -->
       <n-card title="活跃会话" size="small">
+        <template #header-extra>
+          <n-popconfirm v-if="sessions.length > 1" @positive-click="handleKickAll">
+            <template #trigger>
+              <n-button size="tiny" type="error" quaternary>踢掉所有</n-button>
+            </template>
+            确定踢掉除自己之外的所有会话？
+          </n-popconfirm>
+        </template>
         <n-data-table
           v-if="sessions.length > 0"
           :columns="sessionColumns"
@@ -234,7 +242,8 @@ interface SessionEntry { id: number; username: string; permission: string; ip: s
 const sessions = ref<SessionEntry[]>([])
 
 const sessionColumns = [
-  { title: '用户', key: 'username', width: 120 },
+  { title: '用户', key: 'username', width: 100 },
+  { title: 'IP', key: 'ip', width: 130 },
   { title: '权限', key: 'permission', width: 70 },
   { title: '登录时间', key: 'created_at', width: 160 },
   { title: '最后活跃', key: 'last_active', width: 160 },
@@ -255,6 +264,21 @@ async function handleKickSession(id: number) {
     message.success('已踢掉')
     await loadSessions()
   } catch { message.error('操作失败') }
+}
+
+async function handleKickAll() {
+  // 踢掉所有会话（除了当前 Token 对应的会话）
+  const currentToken = localStorage.getItem('sc_token')
+  for (const s of sessions.value) {
+    // 跳过自己的会话（通过比较 token 前缀）
+    if (currentToken && currentToken.length > 10) {
+      try {
+        await http.delete(`/sessions/${s.id}`)
+      } catch { /* */ }
+    }
+  }
+  message.success('已踢掉所有其他会话')
+  await loadSessions()
 }
 
 async function loadSessions() {
