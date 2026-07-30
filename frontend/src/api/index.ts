@@ -193,6 +193,13 @@ export const settingsApi = {
   exportBackup() {
     return http.get('/settings/backup', { responseType: 'blob' })
   },
+  restoreBackup(file: File) {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post<ApiResponse>('/settings/restore', form, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
   getSystemConfig() {
     return http.get<Record<string, unknown>>('/settings/system')
   },

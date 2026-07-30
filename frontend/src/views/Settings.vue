@@ -98,6 +98,9 @@
         <n-space style="margin-top: 16px">
           <n-button size="small" @click="handleCleanHistory">手动清理过期数据</n-button>
           <n-button size="small" @click="handleBackup">导出完整备份</n-button>
+          <n-upload :show-file-list="false" accept=".json" @change="handleRestore">
+            <n-button size="small">恢复备份</n-button>
+          </n-upload>
         </n-space>
       </n-card>
     </div>
@@ -151,7 +154,7 @@
 import { h, onMounted, ref } from 'vue'
 import {
   NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem, NEmpty,
-  NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSpace, useMessage
+  NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSpace, NUpload, useMessage
 } from 'naive-ui'
 import { dashboardApi, settingsApi } from '../api'
 import http from '../api'
@@ -398,6 +401,20 @@ async function handleBackup() {
     a.href = url; a.download = `backup_${new Date().toISOString().slice(0, 10)}.json`
     a.click(); URL.revokeObjectURL(url)
   } catch { /* */ }
+}
+
+async function handleRestore({ file }: { file: File }) {
+  try {
+    const res = await settingsApi.restoreBackup(file.file!)
+    if (res.data?.success) {
+      message.success(res.data.message || '恢复完成')
+      await loadDbStatus()
+      await loadUsers()
+      await loadTokens()
+    } else {
+      message.error(res.data?.message || '恢复失败')
+    }
+  } catch { message.error('恢复失败，请检查文件格式') }
 }
 
 onMounted(() => { loadUsers(); loadTokens(); loadSessions(); loadDbStatus() })

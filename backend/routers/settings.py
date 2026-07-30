@@ -2,16 +2,22 @@
 # Shared Center — 设置 API
 # ============================================================
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 from database import get_db
-from models import KvEntry, KvHistory, Token as TokenModel
+from models import KvEntry, KvHistory, Device, User, Token as TokenModel, Session as SessionModel, WebhookConfig, AlertRule, SystemLog
 from schemas import SystemConfigUpdate, ApiResponse
 from auth import auth_write
 from config import DEFAULT_RETENTION_DAYS
-import os, uuid, json
+import json
 
 router = APIRouter(prefix="/api", tags=["设置"])
+
+
+def _model_to_dict(model_class, db: Session):
+    """将整张表导出为字典列表"""
+    return [{c.name: str(getattr(r, c.name)) for c in model_class.__table__.columns}
+            for r in db.query(model_class).all()]
 
 
 @router.post("/settings/clean-history", response_model=ApiResponse)
@@ -36,18 +42,117 @@ def clean_history(db: Session = Depends(get_db), token=Depends(auth_write)):
 
 @router.get("/settings/backup")
 def export_backup(db: Session = Depends(get_db)):
+    """导出完整备份（含所有表数据）"""
     from fastapi.responses import StreamingResponse
     import io
 
     data = {
-        "kv": [{c.name: str(getattr(r, c.name)) for c in KvEntry.__table__.columns} for r in db.query(KvEntry).all()],
-        "devices": [{c.name: str(getattr(r, c.name)) for c in __import__("models").Device.__table__.columns} for r in
-                    db.query(__import__("models").Device).all()],
-        "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "version": "2.0",
+        "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "kv": _model_to_dict(KvEntry, db),
+        "kv_history": _model_to_dict(KvHistory, db),
+        "devices": _model_to_dict(Device, db),
+        "users": [{c.name: str(getattr(r, c.name))
+                   for c in User.__table__.columns
+                   if c.name != "password_hash"}  # 不含密码
+                  for r in db.query(User).all()],
+        "tokens": _model_to_dict(TokenModel, db),
+        "webhooks": _model_to_dict(WebhookConfig, db),
+        "alert_rules": _model_to_dict(AlertRule, db),
+        "system_logs": _model_to_dict(SystemLog, db),
     }
     buf = io.BytesIO(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
     return StreamingResponse(buf, media_type="application/json",
                              headers={"Content-Disposition": "attachment; filename=shared_center_backup.json"})
+
+
+@router.post("/settings/restore", response_model=ApiResponse)
+async def restore_backup(file: UploadFile, db: Session = Depends(get_db), token=Depends(auth_write)):
+    """从备份文件恢复数据（增量合并，不删除已有数据）"""
+    try:
+        content = await file.read()
+        data = json.loads(content)
+    except Exception:
+        raise HTTPException(400, "备份文件格式无效")
+
+    restored = {"kv": 0, "devices": 0, "webhooks": 0, "alert_rules": 0, "tokens": 0, "users": 0}
+
+    # KV（按 key 去重覆盖）
+    if "kv" in data:
+        for item in data["kv"]:
+            existing = db.query(KvEntry).filter(KvEntry.key == item.get("key")).first()
+            if existing:
+                existing.value = item.get("value", "")
+                existing.type = item.get("type", "string")
+                existing.source = item.get("source", "restore")
+            else:
+                db.add(KvEntry(
+                    key=item.get("key", ""), value=item.get("value", ""),
+                    type=item.get("type", "string"), source=item.get("source", "restore"),
+                    retention_days=int(item.get("retention_days", 180)),
+                    expire_seconds=int(item["expire_seconds"]) if item.get("expire_seconds") else None
+                ))
+            restored["kv"] += 1
+        db.commit()
+
+    # Devices（按 name 去重覆盖）
+    if "devices" in data:
+        for item in data["devices"]:
+            existing = db.query(Device).filter(Device.name == item.get("name")).first()
+            if existing:
+                for k, v in item.items():
+                    if k != "id" and hasattr(existing, k):
+                        setattr(existing, k, v)
+            else:
+                db.add(Device(**{k: v for k, v in item.items() if k != "id"}))
+            restored["devices"] += 1
+        db.commit()
+
+    # Webhooks（按 name+url 去重）
+    if "webhooks" in data:
+        for item in data["webhooks"]:
+            existing = db.query(WebhookConfig).filter(
+                WebhookConfig.name == item.get("name"),
+                WebhookConfig.url == item.get("url")
+            ).first()
+            if not existing:
+                db.add(WebhookConfig(**{k: v for k, v in item.items() if k != "id"}))
+                restored["webhooks"] += 1
+        db.commit()
+
+    # Alert Rules（按 name 去重）
+    if "alert_rules" in data:
+        for item in data["alert_rules"]:
+            existing = db.query(AlertRule).filter(AlertRule.name == item.get("name")).first()
+            if not existing:
+                db.add(AlertRule(**{k: v for k, v in item.items() if k != "id"}))
+                restored["alert_rules"] += 1
+        db.commit()
+
+    # Tokens（按 token 去重）
+    if "tokens" in data:
+        for item in data["tokens"]:
+            existing = db.query(TokenModel).filter(TokenModel.token == item.get("token")).first()
+            if not existing:
+                db.add(TokenModel(**{k: v for k, v in item.items() if k != "id"}))
+                restored["tokens"] += 1
+        db.commit()
+
+    # Users（按 username 去重，不含密码的不覆盖已有用户）
+    if "users" in data:
+        for item in data["users"]:
+            existing = db.query(User).filter(User.username == item.get("username")).first()
+            if not existing:
+                db.add(User(
+                    username=item.get("username", ""),
+                    password_hash="RESTORED_NEED_RESET",
+                    permission=item.get("permission", "read")
+                ))
+                restored["users"] += 1
+        db.commit()
+
+    msg = f"恢复完成: KV×{restored['kv']} 设备×{restored['devices']} Webhook×{restored['webhooks']} 告警×{restored['alert_rules']} Token×{restored['tokens']} 用户×{restored['users']}"
+    return ApiResponse(success=True, message=msg, data=restored)
 
 
 @router.get("/settings/system")
@@ -62,7 +167,6 @@ def get_system_config(db: Session = Depends(get_db)):
 
 @router.put("/settings/system", response_model=ApiResponse)
 def save_system_config(cfg: SystemConfigUpdate, db: Session = Depends(get_db), token=Depends(auth_write)):
-    # 运行时更新配置（单进程有效）
     import config
     if cfg.cleanup_interval_hours is not None:
         config.CLEANUP_INTERVAL_HOURS = cfg.cleanup_interval_hours  # type: ignore

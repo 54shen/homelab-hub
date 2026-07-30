@@ -2,6 +2,7 @@
 # ============================================================
 # Shared Center Agent — 电脑监控客户端
 # 功能：注册设备 + 定时心跳上报（CPU/内存/磁盘/网络/运行时长）
+# 依赖：pip install requests psutil
 # 用法：python agent.py
 # ============================================================
 
@@ -17,7 +18,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-# ---- 可选依赖 ----
+# ---- 依赖 ----
+import requests
+
 try:
     import psutil
     HAS_PSUTIL = True
@@ -110,15 +113,17 @@ def load_config() -> Dict[str, Any]:
 
 
 # ============================================================
-# HTTP 客户端（零依赖，仅用标准库 urllib）
+# HTTP 客户端（基于 requests 库）
 # ============================================================
 
 class AgentClient:
-    """轻量 HTTP 客户端，带 Token 认证和自动重试"""
+    """HTTP 客户端，带 Token 认证、连接复用和自动重试"""
 
     def __init__(self, base_url: str, token: str = ""):
         self.base_url = base_url.rstrip("/")
         self.token = token
+        self.session = requests.Session()
+        self.session.headers.update(self._build_headers())
 
     def _build_headers(self) -> dict:
         h = {
@@ -129,34 +134,53 @@ class AgentClient:
             h["Authorization"] = f"Bearer {self.token}"
         return h
 
-    def post(self, path: str, data: dict, retry: int = 3, delay: int = 5) -> Optional[dict]:
-        """POST 请求，自动重试"""
-        from urllib.request import Request, urlopen
-        from urllib.error import URLError, HTTPError
-
+    def _request(
+        self,
+        method: str,
+        path: str,
+        data: Optional[dict] = None,
+        timeout: int = 10,
+    ) -> Optional[dict]:
+        """通用 HTTP 请求，返回 JSON 或 None"""
         url = f"{self.base_url}{path}"
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        try:
+            resp = self.session.request(
+                method=method,
+                url=url,
+                json=data,
+                timeout=timeout,
+            )
 
+            if 400 <= resp.status_code < 500:
+                body_text = resp.text[:200]
+                log.error(f"请求失败 HTTP {resp.status_code}: {url} — {body_text}")
+                return None
+
+            resp.raise_for_status()
+            return resp.json()
+
+        except requests.exceptions.Timeout:
+            raise
+        except requests.exceptions.ConnectionError:
+            raise
+        except requests.exceptions.RequestException as e:
+            log.error(f"请求异常: {url} — {e}")
+            return None
+
+    def post(self, path: str, data: dict, retry: int = 3, delay: int = 5) -> Optional[dict]:
+        """POST 请求，自动重试（4xx 不重试，5xx/网络错误指数退避）"""
         last_error = None
         for attempt in range(retry + 1):
             try:
-                req = Request(url, data=body, headers=self._build_headers(), method="POST")
-                with urlopen(req, timeout=10) as resp:
-                    return json.loads(resp.read())
-            except HTTPError as e:
+                result = self._request("POST", path, data)
+                if result is not None:
+                    return result
+                # 4xx 错误 — 不重试
+                return None
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout) as e:
                 last_error = e
-                # 4xx 不重试
-                if 400 <= e.code < 500:
-                    body_text = ""
-                    try:
-                        body_text = e.read().decode("utf-8", errors="replace")[:200]
-                    except Exception:
-                        pass
-                    log.error(f"请求失败 HTTP {e.code}: {url} — {body_text}")
-                    return None
-            except URLError as e:
-                last_error = e
-            except Exception as e:
+            except requests.exceptions.RequestException as e:
                 last_error = e
 
             if attempt < retry:

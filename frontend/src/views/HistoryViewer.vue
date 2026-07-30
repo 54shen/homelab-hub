@@ -2,10 +2,13 @@
   <div class="page-container">
     <div class="page-header">
       <h1 class="page-title">历史记录</h1>
-      <n-button size="small" @click="exportCsv">
-        <ion-icon name="download-outline" style="margin-right:4px;vertical-align:-2px"></ion-icon>
-        导出 CSV
-      </n-button>
+      <n-space>
+        <RefreshControl v-model="refreshInterval" />
+        <n-button size="small" @click="exportCsv">
+          <ion-icon name="download-outline" style="margin-right:4px;vertical-align:-2px"></ion-icon>
+          导出 CSV
+        </n-button>
+      </n-space>
     </div>
 
     <!-- 筛选 -->
@@ -14,17 +17,31 @@
         v-model:value="filterKey"
         placeholder="按 key 筛选..."
         clearable
-        style="width: 240px"
+        style="width: 200px"
       >
         <template #prefix>
           <ion-icon name="search-outline" style="color:var(--text-secondary)"></ion-icon>
         </template>
       </n-input>
+      <n-select
+        v-model:value="filterPrefix"
+        :options="prefixOptions"
+        placeholder="按设备/前缀"
+        clearable
+        style="width: 160px"
+      />
+      <n-select
+        v-model:value="filterSource"
+        :options="sourceOptions"
+        placeholder="按来源"
+        clearable
+        style="width: 140px"
+      />
       <n-date-picker
         v-model:value="dateRange"
         type="daterange"
         clearable
-        style="width: 260px"
+        style="width: 240px"
         :default-value="[Date.now() - 30 * 86400000, Date.now()]"
       />
       <span class="filter-info">共 {{ total }} 条</span>
@@ -44,15 +61,42 @@
 </template>
 
 <script setup lang="ts">
-import { h, onMounted, ref, watch } from 'vue'
-import { NButton, NDataTable, NDatePicker, NInput } from 'naive-ui'
-import { historyApi } from '../api'
-import type { KvHistory } from '../types'
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
+import { NButton, NDataTable, NDatePicker, NInput, NSelect, NSpace } from 'naive-ui'
+import RefreshControl from '../components/RefreshControl.vue'
+import { useRefreshInterval } from '../composables/useRefreshInterval'
+import { historyApi, kvApi } from '../api'
+import type { KvHistory, KvEntry } from '../types'
 
 const data = ref<KvHistory[]>([])
 const total = ref(0)
 const filterKey = ref('')
+const filterPrefix = ref<string | null>(null)
+const filterSource = ref<string | null>(null)
 const dateRange = ref<[number, number] | null>([Date.now() - 30 * 86400000, Date.now()])
+const allKeys = ref<KvEntry[]>([])
+const refreshInterval = useRefreshInterval()
+
+// 前缀/来源选项（从现有 KV keys 提取）
+const prefixOptions = computed(() => {
+  const prefixes = new Set<string>()
+  for (const r of allKeys.value) {
+    const dot = r.key.indexOf('.')
+    if (dot > 0) prefixes.add(r.key.slice(0, dot))
+  }
+  return [...prefixes].sort().map(p => ({ label: p, value: p }))
+})
+
+const sourceOptions = computed(() => {
+  const sources = new Set<string>()
+  for (const r of allKeys.value) {
+    if (r.source) sources.add(r.source)
+  }
+  for (const h of data.value) {
+    if (h.source) sources.add(h.source)
+  }
+  return [...sources].sort().map(s => ({ label: s, value: s }))
+})
 
 const columns = [
   {
@@ -92,8 +136,16 @@ async function loadData() {
     }
     const res = await historyApi.list(params)
     if (res.data) {
-      data.value = res.data.items
-      total.value = res.data.total
+      // 前端过滤前缀和来源（后端不支持这些参数）
+      let items = res.data.items
+      if (filterPrefix.value) {
+        items = items.filter(h => h.key.startsWith(filterPrefix.value! + '.'))
+      }
+      if (filterSource.value) {
+        items = items.filter(h => h.source === filterSource.value)
+      }
+      data.value = items
+      total.value = items.length
     }
   } catch {
     data.value = []
@@ -122,8 +174,25 @@ async function exportCsv() {
   }
 }
 
-watch([filterKey, dateRange], () => loadData(), { deep: true })
-onMounted(loadData)
+watch([filterKey, filterPrefix, filterSource, dateRange], () => loadData(), { deep: true })
+
+async function loadKeys() {
+  try {
+    const res = await kvApi.list()
+    if (res.data) allKeys.value = res.data
+  } catch { allKeys.value = [] }
+}
+
+// 定时刷新
+let timer: ReturnType<typeof setInterval> | null = null
+function startTimer(sec: number) {
+  if (timer) { clearInterval(timer); timer = null }
+  if (sec > 0) timer = setInterval(loadData, sec * 1000)
+}
+watch(refreshInterval, startTimer)
+
+onMounted(() => { loadData(); loadKeys() })
+onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
 
 <style scoped>

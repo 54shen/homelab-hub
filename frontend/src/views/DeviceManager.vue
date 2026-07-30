@@ -102,7 +102,9 @@ import { useRefreshInterval } from '../composables/useRefreshInterval'
 import { deviceApi } from '../api'
 import type { Device } from '../types'
 
-const viewMode = ref<'card' | 'table'>('card')
+const storedView = localStorage.getItem('sc_device_view') as 'card' | 'table' | null
+const viewMode = ref<'card' | 'table'>(storedView || 'card')
+watch(viewMode, (v) => { try { localStorage.setItem('sc_device_view', v) } catch {} })
 const filterGroup = ref<string | null>(null)
 const devices = ref<Device[]>([])
 const refreshInterval = useRefreshInterval()
