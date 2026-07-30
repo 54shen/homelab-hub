@@ -96,6 +96,7 @@
       @update:page="kvPage = $event"
       @update:page-size="kvPageSize = $event"
       @update:checked-row-keys="handleCheck"
+      @update:sorter="handleSorter"
     />
 
     <!-- 编辑弹窗 -->
@@ -161,7 +162,27 @@ const typeOptions = [
   { label: 'json', value: 'json' }
 ]
 
-const filteredData = computed(() => {
+const filteredData = ref<KvEntry[]>([])
+const sortKey = ref('')
+const sortOrder = ref<'ascend' | 'descend' | false>(false)
+
+function doSort() {
+  if (!sortOrder.value || !sortKey.value) return
+  const arr = filteredData.value
+  arr.sort((a: any, b: any) => {
+    const va = String(a[sortKey.value] ?? '').toLowerCase()
+    const vb = String(b[sortKey.value] ?? '').toLowerCase()
+    return sortOrder.value === 'ascend' ? va.localeCompare(vb) : vb.localeCompare(va)
+  })
+}
+
+function handleSorter(s: { key: string; order: 'ascend' | 'descend' | false } | null) {
+  sortKey.value = s?.key || ''
+  sortOrder.value = s?.order || false
+  doSort()
+}
+
+function applyFilters() {
   let rows = data.value
   if (searchKey.value) {
     const q = searchKey.value.toLowerCase()
@@ -173,8 +194,11 @@ const filteredData = computed(() => {
   if (filterSource.value) {
     rows = rows.filter(r => r.source === filterSource.value)
   }
-  return rows
-})
+  filteredData.value = [...rows]
+  doSort()
+}
+
+watch([searchKey, filterPrefix, filterSource], applyFilters)
 
 // 自动提取前缀列表（key 中第一个 . 之前的部分）
 const prefixOptions = computed(() => {
@@ -209,18 +233,18 @@ const groupedData = computed(() => {
 
 const columns = [
   { type: 'selection' as const, width: 40 },
-  { title: 'Key', key: 'key', width: 180, ellipsis: { tooltip: true } },
-  { title: 'Value', key: 'value', width: 220, ellipsis: { tooltip: true } },
-  { title: '类型', key: 'type', width: 80 },
-  { title: '来源', key: 'source', width: 140 },
+  { title: 'Key', key: 'key', width: 180, ellipsis: { tooltip: true }, sorter: true },
+  { title: 'Value', key: 'value', width: 220, ellipsis: { tooltip: true }, sorter: true },
+  { title: '类型', key: 'type', width: 80, sorter: true },
+  { title: '来源', key: 'source', width: 140, sorter: true },
   {
-    title: '保留天数', key: 'retention_days', width: 90,
+    title: '保留天数', key: 'retention_days', width: 90, sorter: (a: KvEntry, b: KvEntry) => (a.retention_days || 180) - (b.retention_days || 180),
     render(row: KvEntry) {
       return row.retention_days || 180
     }
   },
   {
-    title: '更新时间', key: 'updated_at', width: 170,
+    title: '更新时间', key: 'updated_at', width: 170, sorter: true,
     render(row: KvEntry) {
       return row.updated_at || '—'
     }
@@ -269,7 +293,9 @@ function openEditModal(row: KvEntry) {
 async function handleSave() {
   if (!form.value.key) return
   try {
-    await kvApi.set({ key: form.value.key, value: form.value.value, type: form.value.type, source: form.value.source, retention_days: form.value.retention_days })
+    const username = localStorage.getItem('sc_username') || 'admin'
+    const src = form.value.source || `${username}(Web)`
+    await kvApi.set({ key: form.value.key, value: form.value.value, type: form.value.type, source: src, retention_days: form.value.retention_days })
     modalVisible.value = false
     message.success('保存成功')
     await loadData()
@@ -324,6 +350,7 @@ async function loadData() {
     const res = await kvApi.list()
     if (res.data) data.value = res.data
   } catch { data.value = [] }
+  applyFilters()
 }
 
 let timer: ReturnType<typeof setInterval> | null = null

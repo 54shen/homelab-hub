@@ -103,6 +103,7 @@
       size="small"
       :row-props="(row: Device) => ({ style: 'cursor:pointer', onClick: () => $router.push('/devices/' + row.id) })"
       style="background: var(--bg-card); border-radius: var(--radius-lg)"
+      @update:sorter="handleSorter"
     />
 
   </div>
@@ -138,7 +139,8 @@ async function saveTimeout(d: Device) {
   const num = parseInt(timeoutInput.value)
   if (!num || num < 1) { cancelTimeoutEdit(); return }
   try {
-    await kvApi.set({ key: `${d.name}.心跳超时`, value: String(num), type: 'int', source: 'ui' })
+    const username = localStorage.getItem('sc_username') || 'admin'
+    await kvApi.set({ key: `${d.name}.心跳超时`, value: String(num), type: 'int', source: `${username}(Web)` })
     d.heartbeat_timeout = num
     message.success(`${d.name} → ${num}s`)
     cancelTimeoutEdit()
@@ -162,28 +164,56 @@ const groupFilterOptions = computed(() => {
   return groups.map(g => ({ label: g, value: g }))
 })
 
-const filteredDevices = computed(() => {
-  if (!filterGroup.value) return devices.value
-  return devices.value.filter(d => d.group === filterGroup.value)
-})
+const filteredDevices = ref<Device[]>([])
+
+const sortKey = ref('')
+const sortOrder = ref<'ascend' | 'descend' | false>(false)
+
+function doSort() {
+  if (!sortOrder.value || !sortKey.value) return
+  const arr = filteredDevices.value
+  arr.sort((a: any, b: any) => {
+    const va = String(a[sortKey.value] ?? '').toLowerCase()
+    const vb = String(b[sortKey.value] ?? '').toLowerCase()
+    return sortOrder.value === 'ascend' ? va.localeCompare(vb) : vb.localeCompare(va)
+  })
+}
+
+function handleSorter(s: { key: string; order: 'ascend' | 'descend' | false } | null) {
+  sortKey.value = s?.key || ''
+  sortOrder.value = s?.order || false
+  if (sortOrder.value) doSort()
+}
+
+function applyDeviceFilter() {
+  // 始终复制一份，避免排序污染源数据
+  if (!filterGroup.value) {
+    filteredDevices.value = [...devices.value]
+  } else {
+    filteredDevices.value = devices.value.filter(d => d.group === filterGroup.value)
+  }
+  doSort()
+}
+
+watch(filterGroup, applyDeviceFilter)
 
 const columns = [
-  { title: '名称', key: 'name', width: 160 },
-  { title: '主机名', key: 'hostname', width: 140 },
-  { title: 'IP', key: 'ip', width: 150 },
+  { title: '名称', key: 'name', width: 160, sorter: true },
+  { title: '主机名', key: 'hostname', width: 140, sorter: true },
+  { title: 'IP', key: 'ip', width: 150, sorter: true },
   { title: 'MAC', key: 'mac', width: 150 },
-  { title: '类型', key: 'type', width: 80 },
-  { title: '分组', key: 'group', width: 80 },
+  { title: '类型', key: 'type', width: 80, sorter: true },
+  { title: '分组', key: 'group', width: 80, sorter: true },
   { title: '版本', key: 'version', width: 70 },
-  { title: '最后心跳', key: 'last_heartbeat', width: 160 },
+  { title: '最后心跳', key: 'last_heartbeat', width: 160, sorter: true },
   {
-    title: '超时', key: 'heartbeat_timeout', width: 85,
+    title: '超时', key: 'heartbeat_timeout', width: 85, sorter: (a: Device, b: Device) => (a.heartbeat_timeout || 180) - (b.heartbeat_timeout || 180),
     render(row: Device) {
       return h('span', { style: 'color:#E65100;font-weight:500;font-variant-numeric:tabular-nums' }, `${row.heartbeat_timeout || 180}s`)
     }
   },
   {
-    title: '状态', key: 'online', width: 80,
+    title: '状态', key: 'online', width: 80, sorter: (a: Device, b: Device) => (a.online ? 1 : 0) - (b.online ? 1 : 0),
     render(row: Device) {
       return h(StatusBadge, { online: row.online })
     }
@@ -213,6 +243,7 @@ async function loadData() {
     const res = await deviceApi.list()
     if (res.data) devices.value = res.data
   } catch { devices.value = [] }
+  applyDeviceFilter()
 }
 
 let timer: ReturnType<typeof setInterval> | null = null

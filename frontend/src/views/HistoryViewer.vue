@@ -63,6 +63,7 @@
       style="background: var(--bg-card); border-radius: var(--radius-lg)"
       @update:page="histPage = $event"
       @update:page-size="histPageSize = $event"
+      @update:sorter="handleSorter"
     />
   </div>
 </template>
@@ -76,6 +77,8 @@ import { historyApi, kvApi } from '../api'
 import type { KvHistory, KvEntry } from '../types'
 
 const data = ref<KvHistory[]>([])
+const sortKey = ref('')
+const sortOrder = ref<'ascend' | 'descend' | false>(false)
 const total = ref(0)
 const filterKey = ref('')
 const filterPrefix = ref<string | null>(null)
@@ -111,12 +114,12 @@ const columns = [
   {
     title: '时间',
     key: 'changed_at',
-    width: 160,
+    width: 160, sorter: true,
     render(row: KvHistory) {
       return row.changed_at || '--'
     }
   },
-  { title: 'Key', key: 'key', width: 160, ellipsis: { tooltip: true } },
+  { title: 'Key', key: 'key', width: 160, ellipsis: { tooltip: true }, sorter: true },
   {
     title: '变更',
     key: 'change',
@@ -132,7 +135,7 @@ const columns = [
       ]
     }
   },
-  { title: '来源', key: 'source', width: 140 }
+  { title: '来源', key: 'source', width: 140, sorter: true }
 ]
 
 async function loadData() {
@@ -145,7 +148,7 @@ async function loadData() {
     }
     const res = await historyApi.list(params)
     if (res.data) {
-      // 前端过滤前缀和来源（后端不支持这些参数）
+      // 前端过滤前缀和来源
       let items = res.data.items
       if (filterPrefix.value) {
         items = items.filter(h => h.key.startsWith(filterPrefix.value! + '.'))
@@ -153,13 +156,29 @@ async function loadData() {
       if (filterSource.value) {
         items = items.filter(h => h.source === filterSource.value)
       }
-      data.value = items
+      data.value = [...items]
       total.value = items.length
+      if (sortOrder.value && sortKey.value) doSort()
     }
   } catch {
     data.value = []
     total.value = 0
   }
+}
+
+function doSort() {
+  const arr = data.value
+  arr.sort((a: any, b: any) => {
+    const va = String(a[sortKey.value] ?? '').toLowerCase()
+    const vb = String(b[sortKey.value] ?? '').toLowerCase()
+    return sortOrder.value === 'ascend' ? va.localeCompare(vb) : vb.localeCompare(va)
+  })
+}
+
+function handleSorter(s: { key: string; order: 'ascend' | 'descend' | false } | null) {
+  sortKey.value = s?.key || ''
+  sortOrder.value = s?.order || false
+  if (sortOrder.value) doSort()
 }
 
 async function exportCsv() {
