@@ -32,17 +32,26 @@ def cleanup_history():
 
 
 def check_device_offline():
-    """检查超时设备并标记离线"""
+    """检查超时设备并标记离线，触发离线告警"""
     db: Session = SessionLocal()
     try:
         cutoff = (datetime.now() - timedelta(seconds=HEARTBEAT_TIMEOUT_SECONDS)).strftime("%Y-%m-%d %H:%M:%S")
-        offline_count = db.query(Device).filter(
+        # 找出即将标记为离线的设备
+        offline_devices = db.query(Device).filter(
             Device.online == True,
             Device.last_heartbeat < cutoff
-        ).update({"online": False})
-        if offline_count > 0:
+        ).all()
+
+        if offline_devices:
+            for d in offline_devices:
+                d.online = False
             db.commit()
-            print(f"[Heartbeat] {offline_count} 台设备超时离线")
+
+            # 触发离线告警
+            from services.alerts import check_device_offline_alert
+            for d in offline_devices:
+                print(f"[Heartbeat] {d.name} 超时离线")
+                check_device_offline_alert(d.name)
     except Exception as e:
         print(f"[Heartbeat] 检查出错: {e}")
         db.rollback()

@@ -24,11 +24,12 @@
         </div>
 
         <div class="ac-rule">
-          <code class="ac-key">{{ r.trigger_key }}</code>
+          <code class="ac-key">{{ displayKey(r.trigger_key) }}</code>
           <span class="ac-cond">{{ conditionLabel(r.condition) }}</span>
-          <code class="ac-threshold">{{ r.threshold }}</code>
+          <code v-if="r.threshold" class="ac-threshold">{{ r.threshold }}</code>
           <ion-icon name="arrow-forward-outline" class="ac-arrow"></ion-icon>
           <n-tag size="small" :bordered="false" round :type="actionTagType(r.action)">{{ actionLabel(r.action) }}</n-tag>
+          <span v-if="r.action_target" class="ac-target">{{ resolveTargetName(r.action, r.action_target) }}</span>
         </div>
 
         <div class="ac-footer">
@@ -46,24 +47,80 @@
     </div>
 
     <!-- 编辑弹窗 -->
-    <n-modal v-model:show="modalVisible" preset="card" :title="editingId ? '编辑规则' : '新增规则'" style="width:520px">
+    <n-modal v-model:show="modalVisible" preset="card" :title="editingId ? '编辑规则' : '新增规则'" style="width:560px">
       <n-form label-placement="left" label-width="90px">
         <n-form-item label="名称" required>
-          <n-input v-model:value="form.name" placeholder="例如：PC离线通知" />
+          <n-input v-model:value="form.name" placeholder="例如：CPU 高负载告警" />
         </n-form-item>
         <n-form-item label="描述">
-          <n-input v-model:value="form.description" placeholder="规则描述" />
+          <n-input v-model:value="form.description" placeholder="规则描述（选填）" />
         </n-form-item>
-        <n-form-item label="监控变量" required>
-          <n-input v-model:value="form.trigger_key" placeholder="例如: pc.online" />
+
+        <!-- 条件 -->
+        <n-form-item label="条件" required>
+          <n-select v-model:value="form.condition" :options="conditionOptions" style="width:140px" @update:value="onConditionChange" />
         </n-form-item>
-        <n-form-item label="条件">
-          <n-select v-model:value="form.condition" :options="conditionOptions" style="width:140px" />
-          <n-input v-model:value="form.threshold" placeholder="阈值" style="width:120px;margin-left:8px" />
+
+        <!-- 监控变量 / 设备选择 -->
+        <n-form-item v-if="form.condition !== 'offline'" label="监控变量" required>
+          <div class="cascader-row">
+            <n-select
+              v-model:value="selectedPrefix"
+              :options="prefixOptions"
+              placeholder="选择设备/前缀"
+              filterable
+              clearable
+              style="flex:1"
+              @update:value="onPrefixChange"
+            />
+            <n-select
+              v-model:value="selectedKey"
+              :options="keyOptions"
+              placeholder="选择变量"
+              filterable
+              style="flex:2"
+              @update:value="onKeySelect"
+            />
+          </div>
+          <template #feedback>
+            <span style="font-size:11px;color:var(--text-secondary)">或直接在下方输入完整 key</span>
+          </template>
         </n-form-item>
+        <n-form-item v-if="form.condition !== 'offline'" label="完整 Key">
+          <n-input v-model:value="form.trigger_key" placeholder="例如: 大爷的ROG.cpu" size="small" />
+        </n-form-item>
+
+        <!-- 离线条件：选设备 -->
+        <n-form-item v-if="form.condition === 'offline'" label="监控设备" required>
+          <n-select
+            v-model:value="selectedDevice"
+            :options="deviceOptions"
+            placeholder="选择要监控的设备"
+            filterable
+            @update:value="onDeviceSelect"
+          />
+        </n-form-item>
+
+        <!-- 阈值 -->
+        <n-form-item v-if="form.condition !== 'changed' && form.condition !== 'offline'" label="阈值">
+          <n-input v-model:value="form.threshold" placeholder="例如: 80" style="width:120px" />
+        </n-form-item>
+
+        <!-- 动作 -->
         <n-form-item label="动作">
           <n-select v-model:value="form.action" :options="actionOptions" style="width:140px" />
-          <n-input v-model:value="form.action_target" placeholder="目标（Webhook名称等）" style="width:160px;margin-left:8px" />
+        </n-form-item>
+        <n-form-item v-if="form.action === 'webhook'" label="Webhook">
+          <n-select
+            v-model:value="form.action_target"
+            :options="webhookOptions"
+            placeholder="选择 Webhook"
+            filterable
+            style="flex:1"
+          />
+        </n-form-item>
+        <n-form-item v-if="form.action === 'notification'" label="通知对象">
+          <n-input v-model:value="form.action_target" placeholder="通知渠道名称（选填）" />
         </n-form-item>
       </n-form>
       <template #footer>
@@ -77,19 +134,61 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   NButton, NEmpty, NForm, NFormItem, NInput, NModal,
   NPopconfirm, NSelect, NSpace, NSwitch, NTag, useMessage
 } from 'naive-ui'
-import { alertApi } from '../api'
-import type { AlertRule } from '../types'
+import { alertApi, deviceApi, kvApi, webhookApi } from '../api'
+import type { AlertRule, Device, KvEntry, WebhookConfig } from '../types'
 
 const message = useMessage()
 const rules = ref<AlertRule[]>([])
 const modalVisible = ref(false)
 const editingId = ref<number | null>(null)
 
+// ---- 外部数据源 ----
+const allKeys = ref<KvEntry[]>([])
+const allDevices = ref<Device[]>([])
+const allWebhooks = ref<WebhookConfig[]>([])
+
+// ---- 级联选择器状态 ----
+const selectedPrefix = ref<string | null>(null)
+const selectedKey = ref<string | null>(null)
+const selectedDevice = ref<string | null>(null)
+
+// 前缀列表（从 KV keys 提取第一段）
+const prefixOptions = computed(() => {
+  const prefixes = new Set<string>()
+  for (const r of allKeys.value) {
+    const dot = r.key.indexOf('.')
+    if (dot > 0) prefixes.add(r.key.slice(0, dot))
+  }
+  return [...prefixes].sort().map(p => ({ label: p, value: p }))
+})
+
+// 选中前缀后的变量列表
+const keyOptions = computed(() => {
+  const pfx = selectedPrefix.value
+  if (!pfx) return []
+  return allKeys.value
+    .filter(r => r.key.startsWith(pfx + '.'))
+    .map(r => ({ label: r.key.slice(pfx.length + 1), value: r.key }))
+})
+
+// 设备选项
+const deviceOptions = computed(() =>
+  allDevices.value.map(d => ({ label: d.name, value: `__device__:${d.name}` }))
+)
+
+// Webhook 选项（存 ID，显示名称）
+const webhookOptions = computed(() =>
+  allWebhooks.value
+    .filter(w => w.enabled)
+    .map(w => ({ label: `${w.name} (ID:${w.id})`, value: `webhook:${w.id}` }))
+)
+
+// ---- 表单 ----
 const defaultForm = () => ({
   name: '', description: '', trigger_key: '', condition: 'eq' as AlertRule['condition'],
   threshold: '', action: 'notification' as AlertRule['action'], action_target: ''
@@ -110,6 +209,67 @@ const actionOptions = [
   { label: '记录日志', value: 'log' }
 ]
 
+// ---- 级联选择逻辑 ----
+function onPrefixChange() {
+  selectedKey.value = null
+}
+
+function onKeySelect(key: string) {
+  form.value.trigger_key = key
+}
+
+function onDeviceSelect(val: string) {
+  form.value.trigger_key = val
+}
+
+function onConditionChange(cond: string) {
+  if (cond === 'offline') {
+    selectedPrefix.value = null
+    selectedKey.value = null
+    form.value.trigger_key = ''
+    form.value.threshold = ''
+  } else {
+    selectedDevice.value = null
+  }
+}
+
+// 初始化级联选择器（编辑时回填）
+function initSelectors(rule: Partial<AlertRule>) {
+  const key = rule.trigger_key || ''
+  if (key.startsWith('__device__:')) {
+    selectedDevice.value = key
+    selectedPrefix.value = null
+    selectedKey.value = null
+  } else {
+    selectedDevice.value = null
+    const dot = key.indexOf('.')
+    if (dot > 0) {
+      selectedPrefix.value = key.slice(0, dot)
+      selectedKey.value = key
+    } else {
+      selectedPrefix.value = null
+      selectedKey.value = null
+    }
+  }
+}
+
+// ---- 显示辅助 ----
+function displayKey(key: string): string {
+  if (key.startsWith('__device__:')) return key.slice(11)
+  return key
+}
+
+function resolveTargetName(action: string, target: string): string {
+  if (!target) return ''
+  if (target.startsWith('webhook:')) {
+    const id = parseInt(target.split(':')[1])
+    const wh = allWebhooks.value.find(w => w.id === id)
+    return wh ? `→ ${wh.name}` : `→ ⚠ 已删除 (ID:${id})`
+  }
+  return target ? `→ ${target}` : ''
+}
+
+// ---- 标签/图标 ----
 function conditionLabel(c: AlertRule['condition']) {
   return { eq: '=', neq: '≠', gt: '>', lt: '<', changed: '变更', offline: '离线' }[c] || c
 }
@@ -123,19 +283,31 @@ function actionTagType(a: AlertRule['action']) {
   return { notification: 'warning', webhook: 'info', log: 'default' }[a] as 'warning' | 'info' | 'default'
 }
 
+// ---- CRUD ----
 function openCreate() {
   editingId.value = null
   form.value = defaultForm()
+  selectedPrefix.value = null
+  selectedKey.value = null
+  selectedDevice.value = null
   modalVisible.value = true
 }
 function openEdit(r: AlertRule) {
   editingId.value = r.id
-  form.value = { name: r.name, description: r.description, trigger_key: r.trigger_key, condition: r.condition, threshold: r.threshold, action: r.action, action_target: r.action_target }
+  form.value = {
+    name: r.name, description: r.description,
+    trigger_key: r.trigger_key, condition: r.condition,
+    threshold: r.threshold, action: r.action,
+    action_target: r.action_target
+  }
+  initSelectors(r)
   modalVisible.value = true
 }
 
 async function handleSave() {
-  if (!form.value.name || !form.value.trigger_key) return
+  if (!form.value.name) return
+  if (form.value.condition !== 'offline' && !form.value.trigger_key) return
+  if (form.value.condition === 'offline' && !form.value.trigger_key) return
   try {
     if (editingId.value) {
       await alertApi.update(editingId.value, form.value)
@@ -149,115 +321,65 @@ async function handleSave() {
 }
 
 async function handleToggle(id: number, enabled: boolean) {
-  try {
-    await alertApi.toggle(id, enabled)
-    await loadData()
-  } catch { /* */ }
+  try { await alertApi.toggle(id, enabled); await loadData() } catch { /* */ }
 }
-
 async function handleDelete(id: number) {
-  try {
-    await alertApi.delete(id)
-    message.success('已删除')
-    await loadData()
-  } catch { message.error('删除失败') }
+  try { await alertApi.delete(id); message.success('已删除'); await loadData() } catch { message.error('删除失败') }
 }
 
+// ---- 数据加载 ----
 async function loadData() {
   try {
-    const res = await alertApi.list()
-    if (res.data) rules.value = res.data
-  } catch { rules.value = [] }
+    const [aRes, kRes, dRes, wRes] = await Promise.all([
+      alertApi.list(),
+      kvApi.list(),
+      deviceApi.list(),
+      webhookApi.list()
+    ])
+    if (aRes.data) rules.value = aRes.data
+    if (kRes.data) allKeys.value = kRes.data
+    if (dRes.data) allDevices.value = dRes.data
+    if (wRes.data) allWebhooks.value = wRes.data
+  } catch {
+    rules.value = []
+  }
 }
 
 onMounted(loadData)
 </script>
 
 <style scoped>
-.alert-grid {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gap-sm);
-}
+.alert-grid { display: flex; flex-direction: column; gap: var(--gap-sm); }
 
 .alert-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-card);
-  border-radius: var(--radius-lg);
-  padding: 16px 20px;
-  box-shadow: var(--shadow-card);
-  transition: all 0.2s ease;
+  background: var(--bg-card); border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg); padding: 16px 20px;
+  box-shadow: var(--shadow-card); transition: all 0.2s ease;
 }
-.alert-card.disabled {
-  opacity: 0.5;
-}
+.alert-card.disabled { opacity: 0.5; }
 
-.ac-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-.ac-info {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-.ac-action-icon {
-  font-size: 22px;
-  color: var(--color-info);
-  margin-top: 2px;
-}
-.ac-name {
-  display: block;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-.ac-desc {
-  display: block;
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 2px;
-}
+.ac-header { display: flex; align-items: flex-start; justify-content: space-between; }
+.ac-info { display: flex; align-items: flex-start; gap: 10px; }
+.ac-action-icon { font-size: 22px; color: var(--color-info); margin-top: 2px; }
+.ac-name { display: block; font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.ac-desc { display: block; font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 
 .ac-rule {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 10px 14px;
-  background: var(--bg-page);
-  border-radius: var(--radius-sm);
-  font-size: 13px;
+  display: flex; align-items: center; gap: 8px; margin-top: 12px;
+  padding: 10px 14px; background: var(--bg-page); border-radius: var(--radius-sm); font-size: 13px;
+  flex-wrap: wrap;
 }
 .ac-key {
-  font-family: monospace;
-  font-size: 13px;
-  color: var(--color-info);
-  background: rgba(91, 141, 239, 0.08);
-  padding: 2px 8px;
-  border-radius: var(--radius-xs);
+  font-family: monospace; font-size: 13px; color: var(--color-info);
+  background: rgba(91, 141, 239, 0.08); padding: 2px 8px; border-radius: var(--radius-xs);
 }
-.ac-cond {
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-.ac-threshold {
-  font-family: monospace;
-  color: var(--color-warning);
-}
-.ac-arrow {
-  color: var(--text-secondary);
-}
+.ac-cond { color: var(--text-secondary); font-weight: 600; }
+.ac-threshold { font-family: monospace; color: var(--color-warning); }
+.ac-arrow { color: var(--text-secondary); }
+.ac-target { font-size: 12px; color: var(--text-secondary); margin-left: 4px; }
 
-.ac-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 10px;
-}
-.ac-last {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
+.ac-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+.ac-last { font-size: 11px; color: var(--text-secondary); }
+
+.cascader-row { display: flex; gap: 8px; width: 100%; }
 </style>
