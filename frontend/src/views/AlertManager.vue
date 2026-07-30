@@ -119,9 +119,6 @@
             style="flex:1"
           />
         </n-form-item>
-        <n-form-item v-if="form.action === 'notification'" label="通知对象">
-          <n-input v-model:value="form.action_target" placeholder="通知渠道名称（选填）" />
-        </n-form-item>
       </n-form>
       <template #footer>
         <n-space justify="end">
@@ -181,17 +178,17 @@ const deviceOptions = computed(() =>
   allDevices.value.map(d => ({ label: d.name, value: `__device__:${d.name}` }))
 )
 
-// Webhook 选项（存 ID，显示名称）
+// Webhook 选项（存 ID 到 value，显示只显示名称）
 const webhookOptions = computed(() =>
   allWebhooks.value
     .filter(w => w.enabled)
-    .map(w => ({ label: `${w.name} (ID:${w.id})`, value: `webhook:${w.id}` }))
+    .map(w => ({ label: w.name, value: `webhook:${w.id}` }))
 )
 
 // ---- 表单 ----
 const defaultForm = () => ({
   name: '', description: '', trigger_key: '', condition: 'eq' as AlertRule['condition'],
-  threshold: '', action: 'notification' as AlertRule['action'], action_target: ''
+  threshold: '', action: 'webhook' as AlertRule['action'], action_target: ''
 })
 const form = ref(defaultForm())
 
@@ -204,7 +201,6 @@ const conditionOptions = [
   { label: '设备离线', value: 'offline' }
 ]
 const actionOptions = [
-  { label: '通知', value: 'notification' },
   { label: 'Webhook', value: 'webhook' },
   { label: '记录日志', value: 'log' }
 ]
@@ -274,13 +270,13 @@ function conditionLabel(c: AlertRule['condition']) {
   return { eq: '=', neq: '≠', gt: '>', lt: '<', changed: '变更', offline: '离线' }[c] || c
 }
 function actionLabel(a: AlertRule['action']) {
-  return { notification: '📢 通知', webhook: '🔗 Webhook', log: '📝 日志' }[a] || a
+  return { notification: '🔗 Webhook', webhook: '🔗 Webhook', log: '📝 日志' }[a] || a
 }
 function actionIcon(a: AlertRule['action']) {
-  return { notification: 'notifications-outline', webhook: 'link-outline', log: 'document-text-outline' }[a] || 'flash-outline'
+  return { notification: 'link-outline', webhook: 'link-outline', log: 'document-text-outline' }[a] || 'flash-outline'
 }
 function actionTagType(a: AlertRule['action']) {
-  return { notification: 'warning', webhook: 'info', log: 'default' }[a] as 'warning' | 'info' | 'default'
+  return { notification: 'info', webhook: 'info', log: 'default' }[a] as 'info' | 'default'
 }
 
 // ---- CRUD ----
