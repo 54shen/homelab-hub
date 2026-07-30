@@ -86,7 +86,7 @@
             <span style="font-size:12px;color:var(--text-secondary)">{{ variables.length }} 个</span>
           </template>
           <n-empty v-if="variables.length === 0" description="该设备暂无变量数据" />
-          <n-data-table v-else :columns="varColumns" :data="variables" :bordered="false" size="small" @update:sorter="handleVarSorter" />
+          <n-data-table v-else :columns="varColumns" :data="variables" :bordered="false" size="small" />
         </n-card>
 
         <!-- 心跳历史 -->
@@ -164,10 +164,10 @@ async function loadHistory() {
 }
 
 const varColumns = [
-  { title: 'Key', key: 'key', width: 200, sorter: true },
-  { title: 'Value', key: 'value', width: 200, sorter: true },
-  { title: '类型', key: 'type', width: 80, sorter: true },
-  { title: '更新时间', key: 'updated_at', width: 170, sorter: true }
+  { title: 'Key', key: 'key', width: 200 },
+  { title: 'Value', key: 'value', width: 200 },
+  { title: '类型', key: 'type', width: 80 },
+  { title: '更新时间', key: 'updated_at', width: 170 }
 ]
 
 function iconForType(type: string): string {
@@ -182,20 +182,6 @@ const message = useMessage()
 const timeoutInput = ref('')
 const editingTimeout = ref(false)
 const timeoutInputRef = ref<HTMLInputElement | null>(null)
-const varSortKey = ref('')
-const varSortOrder = ref<'ascend' | 'descend' | false>(false)
-
-function handleVarSorter(s: { key: string; order: 'ascend' | 'descend' | false } | null) {
-  varSortKey.value = s?.key || ''
-  varSortOrder.value = s?.order || false
-  if (!varSortOrder.value || !varSortKey.value) return
-  variables.value.sort((a: any, b: any) => {
-    const va = String(a[varSortKey.value] ?? '').toLowerCase()
-    const vb = String(b[varSortKey.value] ?? '').toLowerCase()
-    return varSortOrder.value === 'ascend' ? va.localeCompare(vb) : vb.localeCompare(va)
-  })
-}
-
 const refreshInterval = useRefreshInterval()
 
 function startTimeoutEdit() {
@@ -228,7 +214,6 @@ async function loadData() {
     }
     if (vRes.data) {
       variables.value = vRes.data
-      if (varSortOrder.value && varSortKey.value) handleVarSorter({ key: varSortKey.value, order: varSortOrder.value })
     }
   } catch {
     device.value = null
