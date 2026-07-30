@@ -124,7 +124,8 @@ function iconForType(type: string): string {
   return map[type] || '📡'
 }
 
-const refreshInterval = ref(0)
+const envInterval = parseFloat(import.meta.env.VITE_REFRESH_INTERVAL || '0')
+const refreshInterval = ref(isNaN(envInterval) ? 0 : envInterval)
 
 async function loadData() {
   loading.value = true

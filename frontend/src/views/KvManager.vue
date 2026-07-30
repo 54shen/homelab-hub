@@ -307,7 +307,8 @@ async function handleImport({ file }: { file: File }) {
   } catch { message.error('导入失败，请检查文件格式') }
 }
 
-const refreshInterval = ref(0)
+const envInterval = parseFloat(import.meta.env.VITE_REFRESH_INTERVAL || '0')
+const refreshInterval = ref(isNaN(envInterval) ? 0 : envInterval)
 
 async function loadData() {
   try {

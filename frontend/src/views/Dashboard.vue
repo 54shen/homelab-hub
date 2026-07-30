@@ -96,7 +96,8 @@ const stats = ref<DashboardStats>({
   running_services: 0, network_status: 'offline', public_ip: '--', system_health: 100
 })
 const recentChanges = ref<KvHistory[]>([])
-const refreshInterval = ref(0)
+const envInterval = parseFloat(import.meta.env.VITE_REFRESH_INTERVAL || '0')
+const refreshInterval = ref(isNaN(envInterval) ? 0 : envInterval)
 
 // ---- 定时刷新 ----
 let timer: ReturnType<typeof setInterval> | null = null

@@ -104,7 +104,8 @@ import type { Device } from '../types'
 const viewMode = ref<'card' | 'table'>('card')
 const filterGroup = ref<string | null>(null)
 const devices = ref<Device[]>([])
-const refreshInterval = ref(0)
+const envInterval = parseFloat(import.meta.env.VITE_REFRESH_INTERVAL || '0')
+const refreshInterval = ref(isNaN(envInterval) ? 0 : envInterval)
 
 const groupFilterOptions = computed(() => {
   const groups = [...new Set(devices.value.map(d => d.group).filter(Boolean))]
