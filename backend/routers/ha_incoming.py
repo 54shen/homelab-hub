@@ -130,6 +130,10 @@ def _write_kv(db: Session, key: str, value: str, source: str, typ: str):
         old = entry.value
         if old != value:
             db.add(KvHistory(key=key, old_value=old, new_value=value, source=source))
+            # 值变更时同步检查告警规则
+            from services.alerts import check_kv_change
+            print(f"[HA] 值变更: key={key} {old} -> {value}，触发告警检查")
+            check_kv_change(key, old, value)
         entry.value = value
         entry.type = typ
         entry.source = source

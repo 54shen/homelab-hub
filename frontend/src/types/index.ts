@@ -97,9 +97,9 @@ export interface AlertRule {
   name: string
   description: string
   trigger_key: string
-  condition: 'eq' | 'neq' | 'gt' | 'lt' | 'changed' | 'offline'
+  condition: 'eq' | 'neq' | 'gt' | 'lt' | 'changed' | 'offline' | 'stale' | 'unchanged'
   threshold: string
-  action: 'webhook' | 'notification' | 'log'
+  action: string  // 逗号分隔多选，如 "webhook,log"
   action_target: string
   enabled: boolean
   last_triggered: string | null

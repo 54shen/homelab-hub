@@ -14,7 +14,7 @@
       <div v-for="r in rules" :key="r.id" class="alert-card" :class="{ disabled: !r.enabled }">
         <div class="ac-header">
           <div class="ac-info">
-            <ion-icon :name="actionIcon(r.action)" class="ac-action-icon"></ion-icon>
+            <ion-icon v-for="act in r.action.split(',')" :key="act" :name="actionIcon(act)" class="ac-action-icon"></ion-icon>
             <div>
               <span class="ac-name">{{ r.name }}</span>
               <span class="ac-desc">{{ r.description || '无描述' }}</span>
@@ -28,7 +28,7 @@
           <span class="ac-cond">{{ conditionLabel(r.condition) }}</span>
           <code v-if="r.threshold" class="ac-threshold">{{ r.threshold }}</code>
           <ion-icon name="arrow-forward-outline" class="ac-arrow"></ion-icon>
-          <n-tag size="small" :bordered="false" round :type="actionTagType(r.action)">{{ actionLabel(r.action) }}</n-tag>
+          <n-tag v-for="act in r.action.split(',')" :key="act" size="small" :bordered="false" round :type="actionTagType(act)">{{ actionLabel(act) }}</n-tag>
           <span v-if="r.action_target" class="ac-target">{{ resolveTargetName(r.action, r.action_target) }}</span>
         </div>
 
@@ -58,7 +58,7 @@
 
         <!-- 条件 -->
         <n-form-item label="条件" required>
-          <n-select v-model:value="form.condition" :options="conditionOptions" style="width:140px" @update:value="onConditionChange" />
+          <n-select v-model:value="form.condition" :options="conditionOptions" style="width:200px" @update:value="onConditionChange" />
         </n-form-item>
 
         <!-- 监控变量 / 设备选择 -->
@@ -84,6 +84,9 @@
           </div>
           <template #feedback>
             <span style="font-size:11px;color:var(--text-secondary)">或直接在下方输入完整 key</span>
+            <span v-if="form.condition === 'stale'" style="display:block;font-size:11px;color:var(--color-warning);margin-top:4px">
+              ⚠ 该 key 的值需为 ISO 8601 时间格式，如 2000-01-01T00:00:00
+            </span>
           </template>
         </n-form-item>
         <n-form-item v-if="form.condition !== 'offline'" label="完整 Key">
@@ -102,15 +105,16 @@
         </n-form-item>
 
         <!-- 阈值 -->
-        <n-form-item v-if="form.condition !== 'changed' && form.condition !== 'offline'" label="阈值">
-          <n-input v-model:value="form.threshold" placeholder="例如: 80" style="width:120px" />
+        <n-form-item v-if="form.condition !== 'changed' && form.condition !== 'offline'" :label="form.condition === 'stale' || form.condition === 'unchanged' ? '超时阈值' : '阈值'">
+          <n-input v-model:value="form.threshold" :placeholder="form.condition === 'stale' || form.condition === 'unchanged' ? '例如: 3600' : '例如: 80'" style="width:120px" />
+          <span v-if="form.condition === 'stale' || form.condition === 'unchanged'" style="margin-left:6px;font-size:13px;color:var(--text-secondary)">秒</span>
         </n-form-item>
 
         <!-- 动作 -->
-        <n-form-item label="动作">
-          <n-select v-model:value="form.action" :options="actionOptions" style="width:140px" />
+        <n-form-item label="动作" class="action-form-item">
+          <n-select v-model:value="form.action" :options="actionOptions" multiple style="width:240px" />
         </n-form-item>
-        <n-form-item v-if="form.action === 'webhook'" label="Webhook">
+        <n-form-item v-if="form.action.includes('webhook')" label="Webhook">
           <n-select
             v-model:value="form.action_target"
             :options="webhookOptions"
@@ -188,7 +192,7 @@ const webhookOptions = computed(() =>
 // ---- 表单 ----
 const defaultForm = () => ({
   name: '', description: '', trigger_key: '', condition: 'eq' as AlertRule['condition'],
-  threshold: '', action: 'webhook' as AlertRule['action'], action_target: ''
+  threshold: '', action: [] as string[], action_target: ''
 })
 const form = ref(defaultForm())
 
@@ -198,7 +202,9 @@ const conditionOptions = [
   { label: '大于 (>)', value: 'gt' },
   { label: '小于 (<)', value: 'lt' },
   { label: '值变化', value: 'changed' },
-  { label: '设备离线', value: 'offline' }
+  { label: '设备离线', value: 'offline' },
+  { label: '值超时 (ISO 8601)', value: 'stale' },
+  { label: '久未更新', value: 'unchanged' }
 ]
 const actionOptions = [
   { label: 'Webhook', value: 'webhook' },
@@ -267,15 +273,15 @@ function resolveTargetName(action: string, target: string): string {
 
 // ---- 标签/图标 ----
 function conditionLabel(c: AlertRule['condition']) {
-  return { eq: '=', neq: '≠', gt: '>', lt: '<', changed: '变更', offline: '离线' }[c] || c
+  return { eq: '=', neq: '≠', gt: '>', lt: '<', changed: '变更', offline: '离线', stale: '值超时', unchanged: '久未更新' }[c] || c
 }
-function actionLabel(a: AlertRule['action']) {
+function actionLabel(a: string) {
   return { notification: '🔗 Webhook', webhook: '🔗 Webhook', log: '📝 日志' }[a] || a
 }
-function actionIcon(a: AlertRule['action']) {
+function actionIcon(a: string) {
   return { notification: 'link-outline', webhook: 'link-outline', log: 'document-text-outline' }[a] || 'flash-outline'
 }
-function actionTagType(a: AlertRule['action']) {
+function actionTagType(a: string) {
   return { notification: 'info', webhook: 'info', log: 'default' }[a] as 'info' | 'default'
 }
 
@@ -293,7 +299,7 @@ function openEdit(r: AlertRule) {
   form.value = {
     name: r.name, description: r.description,
     trigger_key: r.trigger_key, condition: r.condition,
-    threshold: r.threshold, action: r.action,
+    threshold: r.threshold, action: r.action ? r.action.split(',') : [],
     action_target: r.action_target
   }
   initSelectors(r)
@@ -304,11 +310,13 @@ async function handleSave() {
   if (!form.value.name) return
   if (form.value.condition !== 'offline' && !form.value.trigger_key) return
   if (form.value.condition === 'offline' && !form.value.trigger_key) return
+  if (form.value.action.length === 0) return
+  const payload = { ...form.value, action: form.value.action.join(',') }
   try {
     if (editingId.value) {
-      await alertApi.update(editingId.value, form.value)
+      await alertApi.update(editingId.value, payload)
     } else {
-      await alertApi.create(form.value)
+      await alertApi.create(payload)
     }
     modalVisible.value = false
     message.success('保存成功')
@@ -345,6 +353,12 @@ onMounted(loadData)
 </script>
 
 <style scoped>
+.action-form-item :deep(.n-base-selection-tags) {
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+.action-form-item :deep(.n-base-selection-tags .n-tag) {
+  max-width: none; margin: 0;
+}
 .alert-grid { display: flex; flex-direction: column; gap: var(--gap-sm); }
 
 .alert-card {

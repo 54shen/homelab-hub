@@ -33,6 +33,9 @@ def _set_kv_sync(req: KvSetRequest, db: Session):
         new_val = str(req.value)
         if old != new_val:
             _log_history(db, req.key, old, new_val, req.source)
+            # 值变更时同步检查告警规则（所有写入路径统一触发）
+            from services.alerts import check_kv_change
+            check_kv_change(req.key, old, new_val)
         entry.value = new_val
         entry.type = req.type
         entry.source = req.source
@@ -85,11 +88,6 @@ def get_kv(key: str, db: Session = Depends(get_db)):
 
 @router.post("/kv", response_model=ApiResponse)
 async def set_kv(req: KvSetRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
-    old_val = None
-    existing = db.query(KvEntry).filter(KvEntry.key == req.key).first()
-    if existing:
-        old_val = existing.value
-
     _set_kv_sync(req, db)
     db.commit()
 
@@ -106,12 +104,6 @@ async def set_kv(req: KvSetRequest, db: Session = Depends(get_db), token=Depends
             pass
 
     await broadcast("kv.changed", {"key": req.key, "value": str(req.value), "source": req.source})
-
-    # 值变化时异步检查告警规则
-    if str(req.value) != (old_val or ""):
-        from services.alerts import check_kv_change
-        check_kv_change(req.key, old_val, str(req.value))
-
     return ApiResponse(success=True, message="OK")
 
 

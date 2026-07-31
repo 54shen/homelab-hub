@@ -24,8 +24,9 @@ def verify_password(password: str, hashed: str) -> bool:
     except ValueError:
         return False
 from services.cleanup import cleanup_history, check_device_offline
+from services.alerts import check_stale_unchanged
 from websocket_manager import connect, disconnect, broadcast
-from config import CLEANUP_INTERVAL_HOURS, HEARTBEAT_TIMEOUT_SECONDS
+from config import CLEANUP_INTERVAL_HOURS, HEARTBEAT_TIMEOUT_SECONDS, STALE_CHECK_INTERVAL_SECONDS
 import time
 import asyncio
 
@@ -39,6 +40,7 @@ async def lifespan(app: FastAPI):
     _ensure_admin_user()
     scheduler.add_job(cleanup_history, "interval", hours=CLEANUP_INTERVAL_HOURS, id="cleanup")
     scheduler.add_job(check_device_offline, "interval", seconds=HEARTBEAT_TIMEOUT_SECONDS, id="heartbeat_check")
+    scheduler.add_job(check_stale_unchanged, "interval", seconds=STALE_CHECK_INTERVAL_SECONDS, id="stale_check")
     scheduler.start()
     print("[Shared Center] 服务已启动")
     yield

@@ -54,16 +54,44 @@ def _build_payload(wh: WebhookConfig, event: str, event_data: dict | None = None
 
     if wh.body and wh.body.strip():
         try:
-            body_str = wh.body
-            # 模板替换
-            body_str = body_str.replace("{{event}}", event)
-            body_str = body_str.replace("{{timestamp}}", now_str)
-            body_str = body_str.replace("{{webhook}}", wh.name)
-            if event_data:
-                body_str = body_str.replace("{{data}}", json.dumps(event_data, ensure_ascii=False))
-            return json.loads(body_str)
+            body = json.loads(wh.body)
         except json.JSONDecodeError:
-            pass  # Body 不是合法 JSON，退回默认
+            return default
+
+        # 标签映射
+        labels = {
+            "alert": "告警规则", "key": "监控变量", "condition": "触发条件",
+            "threshold": "阈值", "old_value": "旧值", "new_value": "新值",
+            "elapsed_seconds": "已过秒数", "value_time": "上报时间", "updated_at": "最后更新"
+        }
+
+        # 构建 data 文本
+        if event_data:
+            lines = []
+            for k, v in event_data.items():
+                if v is None or v == "":
+                    continue
+                label = labels.get(k, k)
+                lines.append(f"- {label}：{v}")
+            data_text = "\n".join(lines) if lines else "(无详情)"
+        else:
+            data_text = ""
+
+        # 递归替换所有字符串值中的 {{…}} 占位符
+        def replace_placeholders(obj):
+            if isinstance(obj, str):
+                obj = obj.replace("{{event}}", event)
+                obj = obj.replace("{{timestamp}}", now_str)
+                obj = obj.replace("{{webhook}}", wh.name)
+                obj = obj.replace("{{data}}", data_text)
+                return obj
+            elif isinstance(obj, dict):
+                return {k: replace_placeholders(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [replace_placeholders(item) for item in obj]
+            return obj
+
+        return replace_placeholders(body)
     return default
 
 
