@@ -1,4 +1,4 @@
-import { ref, watch } from 'vue'
+import { ref, watch, type Ref } from 'vue'
 import http from '../api'
 
 const cache = new Map<string, string>()
@@ -67,7 +67,7 @@ export function useUISetting(key: string, defaultValue: string) {
 }
 
 /** 读取数字型设置 */
-export function useUINumber(key: string, defaultValue: number): ReturnType<typeof ref<number>> {
+export function useUINumber(key: string, defaultValue: number): Ref<number> {
   const str = useUISetting(key, String(defaultValue))
   const num = ref<number>(parseFloat(str.value) || defaultValue)
 

@@ -1,4 +1,3 @@
-import { watch } from 'vue'
 import { useUINumber } from './useUISetting'
 
 const envDefault = parseFloat(import.meta.env.VITE_REFRESH_INTERVAL || '0') || 0

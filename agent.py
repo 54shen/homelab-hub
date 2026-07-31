@@ -48,13 +48,19 @@ log = logging.getLogger("agent")
 DEFAULTS: Dict[str, Any] = {
     "base_url": "http://localhost:8000",
     "token": "",
-    "device_name": socket.gethostname(),
+    # ══════════════════════════════════════════════════════════
+    # ⚠️ device_name = 设备显示名，也是 KV 前缀（kv_prefix）的来源！
+    #    留空则自动使用本机主机名作为 fallback。
+    #    与下方 hostname（系统主机名）是两个独立字段，不会互相覆盖。
+    # ══════════════════════════════════════════════════════════
+    "device_name": "",              # ← KV前缀来源！设备显示名，留空=用主机名
+    "hostname": socket.gethostname(),  # 系统主机名（只读，不上报为设备名）
     "device_type": "computer",
     "device_group": "PC",
     "heartbeat_interval": 30,       # 心跳间隔（秒）
     "heartbeat_timeout": 0,         # 离线超时（秒），0=使用服务端全局默认(60s)
     "report_kv": True,              # 是否同时上报 KV 变量
-    "kv_prefix": "",                # KV 前缀，留空则自动使用设备名
+    "kv_prefix": "",                # KV 前缀，留空则自动使用 device_name（再为空则用主机名）
     "source": "agent",              # KV 上报时的来源标记
     "retry_times": 3,               # 失败重试次数
     "retry_delay": 5,               # 重试间隔（秒）
@@ -107,9 +113,10 @@ def load_config() -> Dict[str, Any]:
             else:
                 cfg[cfg_key] = val
 
-    # 3. 自动生成 kv_prefix
+    # 3. 自动生成 kv_prefix（优先 device_name，为空则 fallback 到主机名）
     if not cfg["kv_prefix"]:
-        cfg["kv_prefix"] = cfg["device_name"].replace("-", ".").replace(" ", ".") + "."
+        name_for_prefix = cfg["device_name"] or cfg["hostname"]
+        cfg["kv_prefix"] = name_for_prefix.replace("-", ".").replace(" ", ".") + "."
 
     return cfg
 
@@ -300,7 +307,7 @@ class Agent:
         sys_info = collect_system_info()
 
         payload = {
-            "name": self.cfg["device_name"],
+            "name": self.cfg["device_name"] or sys_info["hostname"],  # device_name 为空则用主机名
             "type": self.cfg["device_type"],
             "version": "2.0",
             "hostname": sys_info["hostname"],
@@ -317,7 +324,7 @@ class Agent:
                             delay=self.cfg["retry_delay"])
         if result and result.get("success"):
             self.device_id = result.get("data", {}).get("device_id", "")
-            log.info(f"设备注册成功: {self.cfg['device_name']} (ID: {self.device_id})")
+            log.info(f"设备注册成功: {self.cfg['device_name'] or self.cfg['hostname']} (ID: {self.device_id})")
             return True
         else:
             log.error(f"设备注册失败: {result}")
@@ -329,7 +336,7 @@ class Agent:
         sys_info = collect_system_info()
 
         payload = {
-            "name": self.cfg["device_name"],
+            "name": self.cfg["device_name"] or self.cfg["hostname"],  # device_name 为空则用主机名
             "online": True,
             "cpu": sys_info["cpu"],
             "memory": sys_info["memory"],
@@ -420,7 +427,8 @@ class Agent:
         """启动 Agent 主循环"""
         log.info("=" * 60)
         log.info(f"Shared Center Agent v2.0")
-        log.info(f"设备名: {self.cfg['device_name']}")
+        log.info(f"设备名: {self.cfg['device_name'] or self.cfg['hostname']}")
+        log.info(f"主机名: {self.cfg['hostname']}")
         log.info(f"类型: {self.cfg['device_type']} / {self.cfg['device_group']}")
         log.info(f"服务地址: {self.cfg['base_url']}")
         log.info(f"心跳间隔: {self.cfg['heartbeat_interval']}s")
@@ -479,7 +487,7 @@ class Agent:
         log.info("发送离线心跳...")
         try:
             self._post("/api/device/heartbeat", {
-                "name": self.cfg["device_name"],
+                "name": self.cfg["device_name"] or self.cfg["hostname"],  # device_name 为空则用主机名
                 "online": False,
             }, retry=1, delay=1)
             log.info("已标记为离线")
@@ -511,7 +519,7 @@ def main():
     parser = argparse.ArgumentParser(description="Shared Center Agent — 电脑监控客户端")
     parser.add_argument("--url", help="服务地址，如 http://192.168.5.232:8000")
     parser.add_argument("--token", help="API Token")
-    parser.add_argument("--name", help="设备名称")
+    parser.add_argument("--name", help="设备显示名（也是KV前缀！留空则用主机名）")
     parser.add_argument("--interval", type=int, help="心跳间隔（秒）")
     parser.add_argument("--no-kv", action="store_true", help="关闭 KV 上报")
     parser.add_argument("--once", action="store_true", help="仅上报一次后退出（调试用）")
