@@ -4,12 +4,13 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from database import get_db
-from models import WebhookConfig
+from database import get_db, SessionLocal
+from models import WebhookConfig, Device
 from schemas import WebhookCreate, WebhookUpdate, WebhookOut, ApiResponse
 from auth import auth_write
 import httpx
 import json
+import re
 
 router = APIRouter(prefix="/api", tags=["Webhook"])
 
@@ -47,6 +48,33 @@ def delete_webhook(webhook_id: int, db: Session = Depends(get_db), token=Depends
     return ApiResponse(success=True, message="已删除")
 
 
+# 匹配 {{属性:设备名}} 语法，如 {{ip:大爷的ROG}}
+_DEVICE_ATTR_RE = re.compile(r'\{\{(\w+):([^}]+)\}\}')
+
+
+def _resolve_device_attrs(text: str) -> str:
+    """解析 {{属性:设备名}} 语法，从数据库查询指定设备的属性值"""
+    matches = list(_DEVICE_ATTR_RE.finditer(text))
+    if not matches:
+        return text
+
+    db = SessionLocal()
+    try:
+        result = text
+        for m in matches:
+            attr = m.group(1)
+            device_name = m.group(2).strip()
+            device = db.query(Device).filter(Device.name == device_name).first()
+            if device and hasattr(device, attr):
+                val = getattr(device, attr)
+                result = result.replace(m.group(0), str(val) if val is not None else "")
+            else:
+                result = result.replace(m.group(0), "")  # 找不到 → 空字符串
+        return result
+    finally:
+        db.close()
+
+
 def _resolve_text(text: str, wh_name: str, event: str, event_data: dict | None, now_str: str) -> str:
     """替换文本中所有 {{...}} 模板变量（不含 {{data}} 和 {{rule_body}}，这两个由 _build_payload 处理）"""
     result = text
@@ -57,6 +85,8 @@ def _resolve_text(text: str, wh_name: str, event: str, event_data: dict | None, 
         for k, v in event_data.items():
             if v is not None:
                 result = result.replace("{{" + k + "}}", str(v))
+    # 最后解析 {{属性:设备名}} 写死设备引用
+    result = _resolve_device_attrs(result)
     return result
 
 

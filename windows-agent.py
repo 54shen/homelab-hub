@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # ============================================================
-# 单机精简版 Agent — 仅在本设备使用，参数直接硬编码
-# 依赖：pip install requests psutil
-# 用法：python test.py
+# Windows Agent — 心跳上报 + KV 采集 + HTTP 指令接收（静音控制）
+# 依赖：pip install requests psutil pycaw flask
 # ============================================================
 import sys
 import os
@@ -11,10 +10,13 @@ import signal
 import socket
 import platform
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 
 import requests
+from flask import Flask, request, jsonify
+from pycaw.pycaw import AudioUtilities
 
 try:
     import psutil
@@ -24,22 +26,24 @@ except ImportError:
     print("[WARN] psutil 未安装，无法获取 CPU/内存/磁盘数据。pip install psutil")
 
 # ══════════════════════════════════════════════════════════════
-# 配置区（这台设备的参数直接改这里）
+# 配置区
 # ══════════════════════════════════════════════════════════════
 BASE_URL     = "http://localhost:8000"
-TOKEN        = os.environ.get("TEST_WRITE_TOKEN", "")  # 先查系统环境变量，没有则从 .env 读取
-DEVICE_NAME  = "大爷的ROG"                       # ← KV前缀来源！留空=用主机名
+DEVICE_NAME  = "大爷的ROG"
 DEVICE_TYPE  = "computer"
 DEVICE_GROUP = "PC"
 INTERVAL     = 30                       # 心跳间隔（秒）
 REPORT_KV    = True                     # 是否上报 KV 变量
 KV_INTERVAL  = 6                        # 每 N 次心跳上报一次 KV
 SOURCE       = "agent"
-# ══════════════════════════════════════════════════════════════
+
+# Flask 指令监听端口
+FLASK_PORT   = int(os.getenv("PC_PORT", "24868"))
 
 HOSTNAME = socket.gethostname()
 
-# Token 兜底：环境变量没设则从 .env 文件读取
+# Token：优先环境变量 PC_TOKEN → TEST_WRITE_TOKEN → .env 文件 → 硬编码兜底
+TOKEN = os.getenv("PC_TOKEN") or os.getenv("TEST_WRITE_TOKEN") or ""
 if not TOKEN:
     env_file = Path(__file__).parent / ".env"
     if env_file.exists():
@@ -48,8 +52,12 @@ if not TOKEN:
             if line.startswith("TEST_WRITE_TOKEN="):
                 TOKEN = line.split("=", 1)[1].strip()
                 break
+    if not TOKEN:
+        TOKEN = "48548564864gsdfgsdg456486486sdgsdg4254456456sdgsdgsdf"
 
-# ── 日志 ──────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+# 日志
+# ══════════════════════════════════════════════════════════════
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -58,11 +66,9 @@ logging.basicConfig(
 )
 log = logging.getLogger("agent")
 
-
 # ══════════════════════════════════════════════════════════════
-# HTTP 会话（Token 加载完成后再创建）
+# HTTP 会话（发往中枢服务器）
 # ══════════════════════════════════════════════════════════════
-
 session = requests.Session()
 session.headers.update({
     "Content-Type": "application/json",
@@ -72,13 +78,88 @@ if TOKEN:
     session.headers["Authorization"] = f"Bearer {TOKEN}"
     log.info(f"Token 已加载: {TOKEN[:16]}...")
 else:
-    log.warning("⚠ 未设置 TEST_WRITE_TOKEN，请求可能被拒绝")
+    log.warning("⚠ 未设置 Token，请求可能被拒绝")
+
+# ══════════════════════════════════════════════════════════════
+# Flask 指令服务（静音控制）
+# ══════════════════════════════════════════════════════════════
+flask_app = Flask(__name__)
+_volume = None
+
+
+def _get_volume():
+    global _volume
+    if _volume is None:
+        _volume = AudioUtilities.GetSpeakers().EndpointVolume
+    return _volume
+
+
+def is_muted() -> bool:
+    return _get_volume().GetMute()
+
+
+def do_mute() -> dict:
+    vol = _get_volume()
+    if vol.GetMute():
+        return {"ok": True, "muted": True, "changed": False, "message": "已经是静音状态"}
+    vol.SetMute(True, None)
+    log.info("收到指令 → 静音")
+    return {"ok": True, "muted": True, "changed": True, "message": "已静音"}
+
+
+def do_unmute() -> dict:
+    vol = _get_volume()
+    if not vol.GetMute():
+        return {"ok": True, "muted": False, "changed": False, "message": "已经是非静音状态"}
+    vol.SetMute(False, None)
+    log.info("收到指令 → 取消静音")
+    return {"ok": True, "muted": False, "changed": True, "message": "已取消静音"}
+
+
+def _check_token() -> bool:
+    data = request.json
+    if not data:
+        return False
+    return data.get("token") == TOKEN
+
+
+@flask_app.route("/mute", methods=["POST"])
+def api_mute():
+    if not _check_token():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    return jsonify(do_mute())
+
+
+@flask_app.route("/unmute", methods=["POST"])
+def api_unmute():
+    if not _check_token():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    return jsonify(do_unmute())
+
+
+@flask_app.route("/toggle", methods=["POST"])
+def api_toggle():
+    if not _check_token():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    return jsonify(do_unmute() if is_muted() else do_mute())
+
+
+@flask_app.route("/status", methods=["POST"])
+def api_status():
+    if not _check_token():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    muted = is_muted()
+    return jsonify({"ok": True, "muted": muted, "message": "静音" if muted else "非静音"})
+
+
+def run_flask():
+    log.info(f"指令监听 http://0.0.0.0:{FLASK_PORT}")
+    flask_app.run(host="0.0.0.0", port=FLASK_PORT, debug=False, use_reloader=False)
 
 
 # ══════════════════════════════════════════════════════════════
 # 系统信息采集
 # ══════════════════════════════════════════════════════════════
-
 def get_mac() -> str:
     import uuid
     try:
@@ -148,7 +229,6 @@ def collect() -> dict:
 # ══════════════════════════════════════════════════════════════
 # HTTP 请求
 # ══════════════════════════════════════════════════════════════
-
 def post(path: str, data: dict, retry: int = 3, delay: int = 5) -> dict | None:
     url = f"{BASE_URL.rstrip('/')}{path}"
     for attempt in range(retry + 1):
@@ -176,7 +256,6 @@ def post(path: str, data: dict, retry: int = 3, delay: int = 5) -> dict | None:
 # ══════════════════════════════════════════════════════════════
 # 业务：注册 / 心跳 / KV 上报
 # ══════════════════════════════════════════════════════════════
-
 def kv_prefix() -> str:
     name = DEVICE_NAME or HOSTNAME
     return name.replace("-", ".").replace(" ", ".") + "."
@@ -259,9 +338,8 @@ def report_kv() -> None:
 
 
 # ══════════════════════════════════════════════════════════════
-# 主循环
+# 主入口
 # ══════════════════════════════════════════════════════════════
-
 def shutdown(*_):
     log.info("正在退出...")
     sys.exit(0)
@@ -272,16 +350,16 @@ signal.signal(signal.SIGTERM, shutdown)
 
 
 def main():
-    global _running
-
     name = DEVICE_NAME or HOSTNAME
     log.info("=" * 50)
-    log.info(f"设备名: {name}")
-    log.info(f"主机名: {HOSTNAME}")
-    log.info(f"服务地址: {BASE_URL}")
-    log.info(f"心跳间隔: {INTERVAL}s  |  KV: {'开' if REPORT_KV else '关'}")
-    log.info(f"KV 前缀: {kv_prefix()}")
+    log.info(f"设备名: {name}  |  主机名: {HOSTNAME}")
+    log.info(f"服务地址: {BASE_URL}  |  指令端口: {FLASK_PORT}")
+    log.info(f"心跳间隔: {INTERVAL}s  |  KV: {'开' if REPORT_KV else '关'}  |  KV 前缀: {kv_prefix()}")
     log.info("=" * 50)
+
+    # 启动 Flask 指令监听（后台线程）
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
 
     # 注册
     if not register():
@@ -314,6 +392,7 @@ def main():
 
         for _ in range(INTERVAL * 10):
             time.sleep(0.1)
+
 
 if __name__ == "__main__":
     main()

@@ -55,6 +55,15 @@
         </n-form-item>
         <n-form-item label="URL" required>
           <n-input v-model:value="form.url" placeholder="https://..." />
+          <template #feedback>
+            <div class="body-help" style="margin-top:4px">
+              <span class="body-help-title">支持变量拼接：</span>
+              <code>{<!-- -->{ip}}</code>触发设备IP
+              <code>{<!-- -->{device}}</code>触发设备名
+              <code>{<!-- -->{ip:设备名}}</code>指定设备IP
+              <code>{<!-- -->{mac:设备名}}</code>指定设备MAC
+            </div>
+          </template>
         </n-form-item>
         <n-form-item label="方法">
           <n-select v-model:value="form.method" :options="methodOptions" style="width:120px" />

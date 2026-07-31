@@ -98,7 +98,7 @@ def _write_webhook_error(rule: AlertRule, wh: WebhookConfig, error: str, now_str
 
 def _send_webhook(wh: WebhookConfig, rule: AlertRule, event_data: dict, now_str: str):
     """发送单个 Webhook"""
-    from routers.webhooks import _build_payload
+    from routers.webhooks import _build_payload, resolve_url
 
     event = "alert.triggered"
     payload_data = {
@@ -111,15 +111,16 @@ def _send_webhook(wh: WebhookConfig, rule: AlertRule, event_data: dict, now_str:
     }
 
     payload = _build_payload(wh, event, payload_data, rule_body_template=rule.body or None)
+    url = resolve_url(wh.url, wh.name, event, payload_data)
 
     try:
         method = wh.method.upper()
         if method == "GET":
-            resp = httpx.get(wh.url, headers=wh.headers, params=payload, timeout=10)
+            resp = httpx.get(url, headers=wh.headers, params=payload, timeout=10)
         elif method == "PUT":
-            resp = httpx.put(wh.url, headers=wh.headers, json=payload, timeout=10)
+            resp = httpx.put(url, headers=wh.headers, json=payload, timeout=10)
         else:
-            resp = httpx.post(wh.url, headers=wh.headers, json=payload, timeout=10)
+            resp = httpx.post(url, headers=wh.headers, json=payload, timeout=10)
 
         wh.last_sent = now_str
         if resp.status_code >= 400:
