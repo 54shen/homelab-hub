@@ -53,23 +53,33 @@
           <n-tag v-if="d.version" size="tiny" :bordered="false" round>v{{ d.version }}</n-tag>
         </div>
 
-        <!-- 指标 -->
-        <div v-if="d.online" class="dc-metrics">
-          <div v-if="d.cpu !== undefined" class="dc-metric">
+        <!-- 指标：普通设备 -->
+        <div v-if="d.online && d.type !== 'ha'" class="dc-metrics">
+          <div v-if="d.cpu !== undefined && d.cpu !== null" class="dc-metric">
             <span class="dm-label">CPU</span>
-            <div class="dm-bar"><div class="dm-fill cpu" :style="{ width: d.cpu + '%' }"></div></div>
+            <div class="dm-bar"><div class="dm-fill cpu" :style="{ width: (d.cpu ?? 0) + '%' }"></div></div>
             <span class="dm-val">{{ d.cpu }}%</span>
           </div>
-          <div v-if="d.memory !== undefined" class="dc-metric">
+          <div v-if="d.memory !== undefined && d.memory !== null" class="dc-metric">
             <span class="dm-label">MEM</span>
-            <div class="dm-bar"><div class="dm-fill mem" :style="{ width: d.memory + '%' }"></div></div>
+            <div class="dm-bar"><div class="dm-fill mem" :style="{ width: (d.memory ?? 0) + '%' }"></div></div>
             <span class="dm-val">{{ d.memory }}%</span>
           </div>
-          <div v-if="d.disk !== undefined" class="dc-metric">
+          <div v-if="d.disk !== undefined && d.disk !== null" class="dc-metric">
             <span class="dm-label">DSK</span>
-            <div class="dm-bar"><div class="dm-fill disk" :style="{ width: d.disk + '%' }"></div></div>
+            <div class="dm-bar"><div class="dm-fill disk" :style="{ width: (d.disk ?? 0) + '%' }"></div></div>
             <span class="dm-val">{{ d.disk }}%</span>
           </div>
+        </div>
+
+        <!-- 指标：HA 智能家居设备 -->
+        <div v-if="d.type === 'ha'" class="dc-ha-summary">
+          <div class="ha-var-row">
+            <span v-for="(icon, name) in haSubDeviceSummary[d.id] || {}" :key="name" class="ha-chip">
+              {{ icon }} {{ name }}
+            </span>
+          </div>
+          <div class="ha-count">共 {{ haVarCounts[d.id] || 0 }} 个变量</div>
         </div>
 
         <!-- 底部 -->
@@ -115,6 +125,15 @@ const viewMode = computed<'card' | 'table'>({
 const filterGroup = ref<string | null>(null)
 const devices = ref<Device[]>([])
 const refreshInterval = useRefreshInterval()
+const haVarCounts = ref<Record<string, number>>({})
+const haSubDeviceSummary = ref<Record<string, Record<string, string>>>({})
+
+// HA 子设备图标映射
+const HA_SUB_ICONS: Record<string, string> = {
+  开关: '🔘', 状态: '📋', 功率: '⚡', 温度: '🌡️', 湿度: '💧',
+  浓度: '🌿', 质量: '🌿', 位置: '📍', 亮度: '💡', 电量: '🔋',
+  模式: '⚙️', 风速: '💨', 速度: '💨', 等级: '📊',
+}
 
 const groupFilterOptions = computed(() => {
   const groups = [...new Set(devices.value.map(d => d.group).filter(Boolean))]
@@ -122,8 +141,9 @@ const groupFilterOptions = computed(() => {
 })
 
 const filteredDevices = computed(() => {
-  if (!filterGroup.value) return devices.value
-  return devices.value.filter(d => d.group === filterGroup.value)
+  const list = devices.value
+  if (!filterGroup.value) return list
+  return list.filter(d => d.group === filterGroup.value)
 })
 
 const columns = [
@@ -152,7 +172,8 @@ const columns = [
 function iconForType(type: string): string {
   const map: Record<string, string> = {
     computer: '🖥️', server: '📦', nas: '💾', iot: '🏠',
-    cloud: '☁️', docker: '🐳', vm: '📀', router: '📡'
+    cloud: '☁️', docker: '🐳', vm: '📀', router: '📡',
+    'ha-device': '🏠'
   }
   return map[type] || '📡'
 }
@@ -172,6 +193,41 @@ async function loadData() {
     const res = await deviceApi.list()
     if (res.data) devices.value = res.data
   } catch { devices.value = [] }
+
+  // 加载 HA 设备的变量统计
+  for (const d of devices.value) {
+    if (d.type === 'ha') {
+      try {
+        const vRes = await deviceApi.variables(d.id)
+        const vars = vRes.data || []
+        haVarCounts.value[d.id] = vars.length
+
+        // 提取子设备名和图标
+        const prefix = d.name + '.'
+        const summary: Record<string, string> = {}
+        const seen = new Set<string>()
+        for (const v of vars) {
+          const raw = v.key.startsWith(prefix) ? v.key.slice(prefix.length) : v.key
+          // 尝试分离属性后缀
+          let devName = raw
+          const suffixes = ['设置温度','当前温度','开关','状态','功率','温度','湿度','浓度','位置','亮度','电量','模式','风速','速度','质量','等级']
+          for (const s of suffixes) {
+            if (raw.endsWith(s) && raw.length > s.length) {
+              devName = raw.slice(0, -s.length)
+              break
+            }
+          }
+          if (!seen.has(devName) && seen.size < 8) {
+            seen.add(devName)
+            // 找图标
+            const propSuffix = raw.slice(devName.length)
+            summary[devName] = HA_SUB_ICONS[propSuffix] || '📊'
+          }
+        }
+        haSubDeviceSummary.value[d.id] = summary
+      } catch { /* ignore */ }
+    }
+  }
 }
 
 let timer: ReturnType<typeof setInterval> | null = null
@@ -311,6 +367,31 @@ onUnmounted(() => stopTimer())
 }
 
 .dc-status { display: flex; align-items: center; gap: 8px; }
+
+/* HA 设备卡片 */
+.dc-ha-summary {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+.ha-var-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.ha-chip {
+  font-size: 12px;
+  background: var(--border-light);
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.ha-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .timeout-tag {
   font-size: 11px;
   background: #FFF3E0; color: #E65100; padding: 2px 8px; border-radius: 10px;

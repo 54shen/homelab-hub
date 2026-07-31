@@ -36,8 +36,11 @@ def check_device_offline():
     db: Session = SessionLocal()
     try:
         now = datetime.now()
-        # 找出在线设备，逐个检查
-        online_devices = db.query(Device).filter(Device.online == True).all()
+        # 找出在线设备，逐个检查（跳过 HA 设备：由 HA 自身管理在线状态）
+        online_devices = db.query(Device).filter(
+            Device.online == True,
+            Device.type != "ha"
+        ).all()
         offline_list = []
 
         for d in online_devices:
