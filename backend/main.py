@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from apscheduler.schedulers.background import BackgroundScheduler
 from database import init_db, SessionLocal
 from models import Token as TokenModel, User, Session as SessionModel
 import hashlib
@@ -24,23 +23,21 @@ def verify_password(password: str, hashed: str) -> bool:
     except ValueError:
         return False
 from services.cleanup import cleanup_history, check_device_offline
-from services.alerts import check_stale_unchanged
+from services.scheduler import init_scheduler
 from websocket_manager import connect, disconnect, broadcast
-from config import CLEANUP_INTERVAL_HOURS, HEARTBEAT_TIMEOUT_SECONDS, STALE_CHECK_INTERVAL_SECONDS
+from config import CLEANUP_INTERVAL_HOURS, HEARTBEAT_TIMEOUT_SECONDS
 import time
 import asyncio
-
-# ---- 调度器 ----
-scheduler = BackgroundScheduler()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     _ensure_admin_user()
+    scheduler = init_scheduler()
     scheduler.add_job(cleanup_history, "interval", hours=CLEANUP_INTERVAL_HOURS, id="cleanup")
+    # check_device_offline 只负责标记设备离线（UI 状态），告警触发改由心跳路径实时预约
     scheduler.add_job(check_device_offline, "interval", seconds=HEARTBEAT_TIMEOUT_SECONDS, id="heartbeat_check")
-    scheduler.add_job(check_stale_unchanged, "interval", seconds=STALE_CHECK_INTERVAL_SECONDS, id="stale_check")
     scheduler.start()
     print("[Shared Center] 服务已启动")
     yield

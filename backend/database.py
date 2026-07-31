@@ -57,3 +57,15 @@ def _migrate():
             conn.commit()
         except Exception:
             pass
+        # alert_rules.body (v2.3) — 规则级自定义 Webhook Body 模板
+        try:
+            conn.execute(sqlalchemy.text("ALTER TABLE alert_rules ADD COLUMN body TEXT"))
+            conn.commit()
+        except Exception:
+            pass
+        # webhooks.body_extra (v2.4) — Webhook 默认 Body+ 内容
+        try:
+            conn.execute(sqlalchemy.text("ALTER TABLE webhooks ADD COLUMN body_extra TEXT DEFAULT ''"))
+            conn.commit()
+        except Exception:
+            pass

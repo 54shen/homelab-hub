@@ -103,6 +103,7 @@ export interface AlertRule {
   action_target: string
   enabled: boolean
   last_triggered: string | null
+  body?: string | null  // 自定义 Webhook Body 模板（覆盖 Webhook 默认模板）
 }
 
 /** Webhook 配置 */
@@ -112,7 +113,8 @@ export interface WebhookConfig {
   url: string
   method: 'GET' | 'POST' | 'PUT'
   headers: Record<string, string>
-  body: string
+  body: string        // 信封（强制结构）
+  body_extra: string  // 默认内容（规则未填 body 时回退）
   event_types: string[]
   enabled: boolean
   last_sent: string | null

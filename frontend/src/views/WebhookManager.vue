@@ -72,25 +72,46 @@
         </n-form-item>
         <n-form-item label="Body">
           <n-input v-model:value="bodyText" type="textarea"
-            placeholder="留空 = 默认格式 {&quot;event&quot;:&quot;...&quot;,&quot;webhook&quot;:&quot;...&quot;,&quot;timestamp&quot;:&quot;...&quot;}"
+            placeholder="留空 = 默认格式。用 {{rule_body}} 接收规则的 Body+ 内容"
             :autosize="{ minRows: 6, maxRows: 14 }"
           />
           <template #feedback>
             <div class="body-help">
-              <span class="body-help-title">模板变量：</span>
+              <div class="body-help-title">JSON 合并：Body + Body+ → 拼成一个 JSON 发送</div>
+            </div>
+          </template>
+        </n-form-item>
+        <n-form-item>
+          <template #label>
+            Body+<br />(默认)
+          </template>
+          <n-input v-model:value="bodyExtraText" type="textarea"
+            placeholder="留空 = 无默认内容。规则未填 Body+ 时使用此模板，支持全部告警变量"
+            :autosize="{ minRows: 3, maxRows: 8 }"
+          />
+          <template #feedback>
+            <div class="body-help" style="margin-top:2px">
+              <span class="body-help-title">与 Body 合并发送。规则未配 Body+ 时使用此默认</span>
+            </div>
+              <div class="body-help" style="margin-top:6px">
+              <div class="body-help-title">通用变量</div>
               <code>{<!-- -->{event}}</code> 事件类型
               <code>{<!-- -->{timestamp}}</code> 时间戳
               <code>{<!-- -->{webhook}}</code> Webhook名称
-              <code>{<!-- -->{data}}</code> 事件数据JSON
+              <code>{<!-- -->{data}}</code> 格式化事件文本
             </div>
-            <div class="body-help" style="margin-top:4px">
-              <span class="body-help-title">示例：</span>
-              <n-button text size="tiny" type="primary" @click="setBodyExample('feishu')">飞书</n-button>
-              <n-button text size="tiny" type="primary" @click="setBodyExample('wecom')">企微</n-button>
-              <n-button text size="tiny" type="primary" @click="setBodyExample('dingtalk')">钉钉</n-button>
-              <n-button text size="tiny" type="primary" @click="setBodyExample('bark')">Bark</n-button>
-              <n-button text size="tiny" type="primary" @click="setBodyExample('pushdeer')">PushDeer</n-button>
-              <n-button text size="tiny" type="primary" @click="setBodyExample('clear')">清空</n-button>
+            <div class="body-help" style="margin-top:6px">
+              <div class="body-help-title">告警字段（独立变量）</div>
+              <code>{<!-- -->{alert}}</code> 告警规则
+              <code>{<!-- -->{key}}</code> 监控变量
+              <code>{<!-- -->{condition}}</code> 触发条件
+              <code>{<!-- -->{threshold}}</code> 阈值
+              <code>{<!-- -->{old_value}}</code> 旧值
+              <code>{<!-- -->{new_value}}</code> 新值
+              <code>{<!-- -->{elapsed_seconds}}</code> 已过秒数
+              <code>{<!-- -->{device}}</code> 设备名称
+              <code>{<!-- -->{status}}</code> 设备状态
+              <code>{<!-- -->{通知时间}}</code> 通知时间
             </div>
           </template>
         </n-form-item>
@@ -120,10 +141,11 @@ const modalVisible = ref(false)
 const editingId = ref<number | null>(null)
 const headersText = ref('')
 const bodyText = ref('')
+const bodyExtraText = ref('')
 
 const defaultForm = () => ({
   name: '', url: '', method: 'POST' as WebhookConfig['method'],
-  event_types: [] as string[], headers: {} as Record<string, string>, body: ''
+  event_types: [] as string[], headers: {} as Record<string, string>, body: '', body_extra: ''
 })
 const form = ref(defaultForm())
 
@@ -155,6 +177,7 @@ function openCreate() {
   form.value = defaultForm()
   headersText.value = ''
   bodyText.value = ''
+  bodyExtraText.value = ''
   modalVisible.value = true
 }
 
@@ -162,17 +185,18 @@ function openEdit(w: WebhookConfig) {
   editingId.value = w.id
   form.value = {
     name: w.name, url: w.url, method: w.method,
-    event_types: [...w.event_types], headers: { ...w.headers }, body: w.body || ''
+    event_types: [...w.event_types], headers: { ...w.headers }, body: w.body || '', body_extra: w.body_extra || ''
   }
   headersText.value = JSON.stringify(w.headers, null, 2)
   bodyText.value = w.body || ''
+  bodyExtraText.value = w.body_extra || ''
   modalVisible.value = true
 }
 
 async function handleSave() {
   if (!form.value.name || !form.value.url) return
   try {
-    const data = { ...form.value, headers: headersParsed.value, body: bodyText.value }
+    const data = { ...form.value, headers: headersParsed.value, body: bodyText.value, body_extra: bodyExtraText.value }
     if (editingId.value) {
       await webhookApi.update(editingId.value, data)
     } else {

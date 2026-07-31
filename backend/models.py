@@ -112,6 +112,7 @@ class AlertRule(Base):
     action_target = Column(String(256), default="")
     enabled = Column(Boolean, default=True)
     last_triggered = Column(String(32), nullable=True)
+    body = Column(Text, nullable=True, default=None)  # 自定义 Webhook Body 模板，覆盖 Webhook 配置的默认模板
 
 
 # ---- Webhook 配置表 ----
@@ -123,7 +124,8 @@ class WebhookConfig(Base):
     url = Column(String(512), nullable=False)
     method = Column(String(8), default="POST")
     headers = Column(JSON, default=dict)
-    body = Column(Text, default="")
+    body = Column(Text, default="")       # Body 信封（强制结构，{{rule_body}} 为内容槽位）
+    body_extra = Column(Text, default="") # Body+ 默认内容（规则未填 body 时使用）
     event_types = Column(JSON, default=list)
     enabled = Column(Boolean, default=True)
     last_sent = Column(String(32), nullable=True)

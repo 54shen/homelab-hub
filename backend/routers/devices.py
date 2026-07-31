@@ -145,6 +145,14 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
         device.heartbeat_timeout = req.heartbeat_timeout
 
     db.commit()
+
+    # 预约离线告警检查（每次心跳到达，取消旧预约，重新预约 now + timeout 秒后检查）
+    if req.online:
+        from services.alerts import schedule_offline_check
+        from config import DEFAULT_HEARTBEAT_TIMEOUT
+        timeout = device.heartbeat_timeout if device.heartbeat_timeout and device.heartbeat_timeout > 0 else DEFAULT_HEARTBEAT_TIMEOUT
+        schedule_offline_check(req.name, timeout)
+
     await broadcast("device.heartbeat", {"name": req.name, "online": req.online, "cpu": req.cpu, "memory": req.memory, "disk": req.disk})
     return ApiResponse(success=True, message="OK")
 

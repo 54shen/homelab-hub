@@ -138,6 +138,7 @@ class AlertRuleCreate(BaseModel):
     threshold: str = ""
     action: str = "notification"
     action_target: str = ""
+    body: str = ""  # 自定义 Webhook Body 模板（覆盖 Webhook 默认模板）
 
 
 class AlertRuleUpdate(BaseModel):
@@ -149,6 +150,7 @@ class AlertRuleUpdate(BaseModel):
     action: Optional[str] = None
     action_target: Optional[str] = None
     enabled: Optional[bool] = None
+    body: Optional[str] = None  # 自定义 Webhook Body 模板
 
 
 class AlertRuleToggle(BaseModel):
@@ -166,6 +168,7 @@ class AlertRuleOut(BaseModel):
     action_target: str
     enabled: bool
     last_triggered: Optional[str]
+    body: Optional[str]
 
     class Config:
         orm_mode = True
@@ -177,7 +180,8 @@ class WebhookCreate(BaseModel):
     url: str
     method: str = "POST"
     headers: dict = {}
-    body: str = ""
+    body: str = ""       # 信封（强制结构）
+    body_extra: str = "" # 默认内容（规则未填 body 时回退）
     event_types: list[str] = []
 
 
@@ -187,6 +191,7 @@ class WebhookUpdate(BaseModel):
     method: Optional[str] = None
     headers: Optional[dict] = None
     body: Optional[str] = None
+    body_extra: Optional[str] = None
     event_types: Optional[list[str]] = None
     enabled: Optional[bool] = None
 
@@ -198,6 +203,7 @@ class WebhookOut(BaseModel):
     method: str
     headers: dict
     body: str
+    body_extra: str
     event_types: list[str]
     enabled: bool
     last_sent: Optional[str]

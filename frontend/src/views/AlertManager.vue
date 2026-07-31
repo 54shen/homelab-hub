@@ -123,6 +123,27 @@
             style="flex:1"
           />
         </n-form-item>
+        <!-- Body+：规则级 JSON，与 Webhook Body 合并后发送 -->
+        <n-form-item v-if="form.action.includes('webhook')" label="通知内容 (Body+)">
+          <n-input v-model:value="form.body" type="textarea"
+            placeholder='留空 = 使用 Webhook 的 Body+ 默认。JSON 格式，与 Body 合并发送'
+            :autosize="{ minRows: 4, maxRows: 12 }"
+          />
+          <template #feedback>
+            <div style="margin-top:6px">
+              <n-button text size="tiny" type="primary" @click="setBodyExample('default')">JSON 示例</n-button>
+              <n-button text size="tiny" type="primary" @click="setBodyExample('text')">文本示例</n-button>
+              <n-button text size="tiny" type="primary" @click="setBodyExample('clear')">清空</n-button>
+            </div>
+            <div class="body-help" style="margin-top:6px">
+              <span class="body-help-title">可用变量（按当前条件 {{ form.condition }}）：</span>
+              <code v-for="h in bodyVarHints" :key="h.v">{{ tpl(h.v) }}</code>
+              <div style="margin-top:4px;font-size:10px;color:var(--text-secondary)">
+                <span v-for="h in bodyVarHints" :key="'d'+h.v" style="margin-right:12px">{{ tpl(h.v) }} = {{h.d}}</span>
+              </div>
+            </div>
+          </template>
+        </n-form-item>
       </n-form>
       <template #footer>
         <n-space justify="end">
@@ -192,7 +213,7 @@ const webhookOptions = computed(() =>
 // ---- 表单 ----
 const defaultForm = () => ({
   name: '', description: '', trigger_key: '', condition: 'eq' as AlertRule['condition'],
-  threshold: '', action: [] as string[], action_target: ''
+  threshold: '', action: [] as string[], action_target: '', body: ''
 })
 const form = ref(defaultForm())
 
@@ -210,6 +231,56 @@ const actionOptions = [
   { label: 'Webhook', value: 'webhook' },
   { label: '记录日志', value: 'log' }
 ]
+
+// ---- 各条件类型的专属 Body 模板变量 ----
+const bodyVarMap: Record<string, {v:string, d:string}[]> = {
+  eq:    [{v:'key',d:'监控变量'},{v:'condition',d:'触发条件'},{v:'threshold',d:'阈值'},{v:'old_value',d:'旧值'},{v:'new_value',d:'新值（当前值）'}],
+  neq:   [{v:'key',d:'监控变量'},{v:'condition',d:'触发条件'},{v:'threshold',d:'阈值'},{v:'old_value',d:'旧值'},{v:'new_value',d:'新值（当前值）'}],
+  gt:    [{v:'key',d:'监控变量'},{v:'condition',d:'触发条件'},{v:'threshold',d:'阈值'},{v:'old_value',d:'旧值'},{v:'new_value',d:'新值（当前值）'}],
+  lt:    [{v:'key',d:'监控变量'},{v:'condition',d:'触发条件'},{v:'threshold',d:'阈值'},{v:'old_value',d:'旧值'},{v:'new_value',d:'新值（当前值）'}],
+  changed: [{v:'key',d:'监控变量'},{v:'condition',d:'触发条件'},{v:'old_value',d:'旧值'},{v:'new_value',d:'新值'}],
+  offline: [{v:'device',d:'设备名称'},{v:'status',d:'设备状态'},{v:'last_heartbeat',d:'最后心跳'},{v:'ip',d:'IP 地址'}],
+  stale:  [{v:'key',d:'监控变量'},{v:'condition',d:'触发条件'},{v:'value_time',d:'上报时间 (ISO 8601)'},{v:'elapsed_seconds',d:'已过秒数'},{v:'threshold',d:'超时阈值（秒）'}],
+  unchanged: [{v:'key',d:'监控变量'},{v:'condition',d:'触发条件'},{v:'updated_at',d:'最后更新时间'},{v:'elapsed_seconds',d:'已过秒数'},{v:'threshold',d:'超时阈值（秒）'}],
+}
+const bodyVarHints = computed(() => {
+  const cols = bodyVarMap[form.value.condition] || []
+  return [
+    {v:'alert',d:'告警规则名称'},
+    {v:'timestamp',d:'通知时间'},
+    {v:'event',d:'事件类型 (alert.triggered)'},
+    {v:'webhook',d:'Webhook 名称'},
+    ...cols,
+    {v:'data',d:'格式化事件文本（兼容旧版）'},
+  ]
+})
+
+// Body 预设示例
+function setBodyExample(key: string) {
+  const examples: Record<string, string> = {
+    default: JSON.stringify({
+      alert: "{{alert}}",
+      key: "{{key}}",
+      condition: "{{condition}}",
+      old_value: "{{old_value}}",
+      new_value: "{{new_value}}",
+      timestamp: "{{timestamp}}"
+    }, null, 2),
+    text: `### {{alert}} ###
+- 监控变量：{{key}}
+- 触发条件：{{condition}}
+- 旧值：{{old_value}}
+- 新值：{{new_value}}
+- 通知时间：{{timestamp}}`,
+    clear: ""
+  }
+  form.value.body = examples[key] || ''
+}
+
+// 模板变量名格式化（避免 Vue 模板解析 {{ }} 内嵌字符串问题）
+function tpl(name: string) {
+  return '{{' + name + '}}'
+}
 
 // ---- 级联选择逻辑 ----
 function onPrefixChange() {
@@ -300,7 +371,7 @@ function openEdit(r: AlertRule) {
     name: r.name, description: r.description,
     trigger_key: r.trigger_key, condition: r.condition,
     threshold: r.threshold, action: r.action ? r.action.split(',') : [],
-    action_target: r.action_target
+    action_target: r.action_target, body: r.body || ''
   }
   initSelectors(r)
   modalVisible.value = true
@@ -392,4 +463,15 @@ onMounted(loadData)
 .ac-last { font-size: 11px; color: var(--text-secondary); }
 
 .cascader-row { display: flex; gap: 8px; width: 100%; }
+
+.body-help {
+  font-size: 11px; color: var(--text-secondary); line-height: 1.8;
+}
+.body-help code {
+  background: #F1F5F9; padding: 1px 5px; border-radius: 4px;
+  font-size: 10px; margin-right: 6px;
+}
+.body-help-title {
+  font-weight: 600; margin-right: 4px; display: block; margin-bottom: 2px;
+}
 </style>
