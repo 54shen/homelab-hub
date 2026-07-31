@@ -57,8 +57,10 @@
       :pagination="{
         page: histPage,
         pageSize: histPageSize,
+        pageCount: Math.ceil(total / histPageSize) || 1,
         showSizePicker: true,
-        pageSizes: [20, 50, 100]
+        pageSizes: [20, 50, 100],
+        prefix: ({ itemCount }: { itemCount: number }) => `共 ${total} 条`
       }"
       style="background: var(--bg-card); border-radius: var(--radius-lg)"
       @update:page="histPage = $event"
@@ -137,7 +139,10 @@ const columns = [
 
 async function loadData() {
   try {
-    const params: Record<string, unknown> = {}
+    const params: Record<string, unknown> = {
+      page: histPage.value,
+      page_size: histPageSize.value
+    }
     if (filterKey.value) params.key = filterKey.value
     if (dateRange.value) {
       params.start = new Date(dateRange.value[0]).toISOString()
@@ -145,7 +150,7 @@ async function loadData() {
     }
     const res = await historyApi.list(params)
     if (res.data) {
-      // 前端过滤前缀和来源
+      // 前端过滤前缀和来源（注：会影响分页准确性，后续可移至后端）
       let items = res.data.items
       if (filterPrefix.value) {
         items = items.filter(h => h.key.startsWith(filterPrefix.value! + '.'))
@@ -154,7 +159,7 @@ async function loadData() {
         items = items.filter(h => h.source === filterSource.value)
       }
       data.value = items
-      total.value = items.length
+      total.value = res.data.total
     }
   } catch {
     data.value = []
@@ -183,7 +188,7 @@ async function exportCsv() {
   }
 }
 
-watch([filterKey, filterPrefix, filterSource, dateRange], () => loadData(), { deep: true })
+watch([filterKey, filterPrefix, filterSource, dateRange, histPage, histPageSize], () => loadData(), { deep: true })
 
 async function loadKeys() {
   try {

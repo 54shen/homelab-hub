@@ -7,7 +7,7 @@ from database import Base
 
 
 def _now():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 本地时区（东八区）
 
 
 # ---- KV 数据表 ----
@@ -56,6 +56,8 @@ class Device(Base):
     uptime = Column(String(32), default="")
     notes = Column(String(512), default="")
     heartbeat_timeout = Column(Integer, default=0)  # 0=使用全局默认，>0=自定义秒数
+    volume = Column(Integer, nullable=True)  # 系统音量 0-100，null=未上报
+    muted = Column(Boolean, default=False)   # 是否静音
     last_heartbeat = Column(String(32), default=_now)
     registered_at = Column(String(32), default=_now)
 

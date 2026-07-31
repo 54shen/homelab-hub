@@ -141,6 +141,9 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
         device.uptime = req.uptime
     if req.ip:
         device.ip = req.ip
+    if req.volume is not None:
+        device.volume = req.volume
+    device.muted = req.muted
     if req.heartbeat_timeout > 0:
         device.heartbeat_timeout = req.heartbeat_timeout
 

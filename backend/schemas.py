@@ -74,6 +74,8 @@ class DeviceHeartbeatRequest(BaseModel):
     cpu: Optional[int] = None
     memory: Optional[int] = None
     disk: Optional[int] = None
+    volume: Optional[int] = None  # 系统音量 0-100
+    muted: bool = False  # 是否静音
     uptime: str = ""
     ip: str = ""
     heartbeat_timeout: int = 0  # 可在心跳中动态更新超时
@@ -93,6 +95,8 @@ class DeviceOut(BaseModel):
     cpu: Optional[int]
     memory: Optional[int]
     disk: Optional[int]
+    volume: Optional[int]
+    muted: bool
     uptime: str
     notes: str
     heartbeat_timeout: int

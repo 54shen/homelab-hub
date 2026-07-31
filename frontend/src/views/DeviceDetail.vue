@@ -91,6 +91,10 @@
             <div class="metric-big">{{ device.disk ?? '—' }}<span class="unit">%</span></div>
             <n-progress type="line" :percentage="device.disk ?? 0" color="#F59E0B" :height="6" :border-radius="3" />
           </n-card>
+          <n-card size="small" title="音量">
+            <div class="metric-big">{{ device.muted ? '🔇 ' : '' }}{{ device.volume ?? '—' }}<span class="unit">%</span></div>
+            <n-progress type="line" :percentage="device.muted ? 0 : (device.volume ?? 0)" :color="device.muted ? '#9CA3AF' : '#A855F7'" :height="6" :border-radius="3" />
+          </n-card>
           <n-card size="small" title="运行时长">
             <div class="metric-big-text">{{ device.uptime || '—' }}</div>
           </n-card>
@@ -411,6 +415,14 @@ onMounted(async () => {
         if (memHistory.value.length > 30) memHistory.value.shift()
       }
       updateChart()
+      // 实时更新指标卡
+      if (device.value) {
+        if (data.cpu !== null && data.cpu !== undefined) device.value.cpu = data.cpu
+        if (data.memory !== null && data.memory !== undefined) device.value.memory = data.memory
+        if (data.disk !== null && data.disk !== undefined) device.value.disk = data.disk
+        if (data.volume !== null && data.volume !== undefined) device.value.volume = data.volume
+        if (data.muted !== null && data.muted !== undefined) device.value.muted = data.muted
+      }
     }
   })
 })

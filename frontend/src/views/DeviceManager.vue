@@ -70,6 +70,13 @@
             <div class="dm-bar"><div class="dm-fill disk" :style="{ width: (d.disk ?? 0) + '%' }"></div></div>
             <span class="dm-val">{{ d.disk }}%</span>
           </div>
+          <div v-if="d.volume !== undefined && d.volume !== null" class="dc-metric">
+            <span class="dm-label">VOL</span>
+            <div class="dm-bar">
+              <div class="dm-fill vol" :class="{ muted: d.muted }" :style="{ width: d.muted ? '0%' : (d.volume ?? 0) + '%' }"></div>
+            </div>
+            <span class="dm-val" :class="{ 'muted-text': d.muted }">{{ d.muted ? '🔇' : '' }} {{ d.volume }}%</span>
+          </div>
         </div>
 
         <!-- 指标：HA 智能家居设备 -->
@@ -344,6 +351,9 @@ onUnmounted(() => stopTimer())
 .dm-fill.cpu { background: var(--color-info); }
 .dm-fill.mem { background: var(--color-success); }
 .dm-fill.disk { background: var(--color-warning); }
+.dm-fill.vol { background: #A855F7; }
+.dm-fill.vol.muted { background: #9CA3AF; }
+.muted-text { color: #9CA3AF; }
 .dm-val {
   font-size: 12px;
   font-weight: 600;

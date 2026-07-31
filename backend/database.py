@@ -69,3 +69,15 @@ def _migrate():
             conn.commit()
         except Exception:
             pass
+        # devices.volume (v2.5) — 系统音量 0-100
+        try:
+            conn.execute(sqlalchemy.text("ALTER TABLE devices ADD COLUMN volume INTEGER"))
+            conn.commit()
+        except Exception:
+            pass
+        # devices.muted (v2.6) — 是否静音
+        try:
+            conn.execute(sqlalchemy.text("ALTER TABLE devices ADD COLUMN muted BOOLEAN DEFAULT 0"))
+            conn.commit()
+        except Exception:
+            pass

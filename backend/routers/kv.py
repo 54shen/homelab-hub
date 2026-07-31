@@ -17,7 +17,9 @@ router = APIRouter(prefix="/api", tags=["KV 变量"])
 
 
 def _log_history(db: Session, key: str, old_val: str | None, new_val: str, source: str):
-    h = KvHistory(key=key, old_value=old_val, new_value=new_val, source=source)
+    from datetime import datetime
+    h = KvHistory(key=key, old_value=old_val, new_value=new_val, source=source,
+                  changed_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     db.add(h)
 
 
