@@ -8,11 +8,21 @@ from database import get_db, SessionLocal
 from models import WebhookConfig, Device
 from schemas import WebhookCreate, WebhookUpdate, WebhookOut, ApiResponse
 from auth import auth_write
+from websocket_manager import broadcast
 import httpx
 import json
 import re
 
 router = APIRouter(prefix="/api", tags=["Webhook"])
+
+
+def _wh_to_dict(wh: WebhookConfig) -> dict:
+    return {
+        "id": wh.id, "name": wh.name, "url": wh.url, "method": wh.method,
+        "headers": wh.headers, "body": wh.body, "body_extra": wh.body_extra,
+        "event_types": wh.event_types, "enabled": wh.enabled,
+        "last_sent": wh.last_sent, "fail_count": wh.fail_count
+    }
 
 
 @router.get("/webhooks", response_model=list[WebhookOut])
@@ -21,30 +31,33 @@ def list_webhooks(db: Session = Depends(get_db)):
 
 
 @router.post("/webhooks", response_model=ApiResponse)
-def create_webhook(req: WebhookCreate, db: Session = Depends(get_db), token=Depends(auth_write)):
+async def create_webhook(req: WebhookCreate, db: Session = Depends(get_db), token=Depends(auth_write)):
     wh = WebhookConfig(**req.dict())
     db.add(wh)
     db.commit()
+    await broadcast("webhook.created", _wh_to_dict(wh))
     return ApiResponse(success=True, message="已创建")
 
 
 @router.put("/webhooks/{webhook_id}", response_model=ApiResponse)
-def update_webhook(webhook_id: int, req: WebhookUpdate, db: Session = Depends(get_db), token=Depends(auth_write)):
+async def update_webhook(webhook_id: int, req: WebhookUpdate, db: Session = Depends(get_db), token=Depends(auth_write)):
     wh = db.query(WebhookConfig).filter(WebhookConfig.id == webhook_id).first()
     if not wh:
         raise HTTPException(404, "Webhook 不存在")
     for k, v in req.dict(exclude_none=True).items():
         setattr(wh, k, v)
     db.commit()
+    await broadcast("webhook.updated", _wh_to_dict(wh))
     return ApiResponse(success=True, message="已更新")
 
 
 @router.delete("/webhooks/{webhook_id}", response_model=ApiResponse)
-def delete_webhook(webhook_id: int, db: Session = Depends(get_db), token=Depends(auth_write)):
+async def delete_webhook(webhook_id: int, db: Session = Depends(get_db), token=Depends(auth_write)):
     wh = db.query(WebhookConfig).filter(WebhookConfig.id == webhook_id).first()
     if wh:
         db.delete(wh)
         db.commit()
+        await broadcast("webhook.deleted", {"id": webhook_id})
     return ApiResponse(success=True, message="已删除")
 
 

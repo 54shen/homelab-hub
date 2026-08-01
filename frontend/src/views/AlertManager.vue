@@ -156,11 +156,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   NButton, NEmpty, NForm, NFormItem, NInput, NModal,
   NPopconfirm, NSelect, NSpace, NSwitch, NTag, useMessage
 } from 'naive-ui'
+import { useWebSocket } from '../composables/useWebSocket'
 import { alertApi, deviceApi, kvApi, webhookApi } from '../api'
 import type { AlertRule, Device, KvEntry, WebhookConfig } from '../types'
 
@@ -420,7 +421,20 @@ async function loadData() {
   }
 }
 
-onMounted(loadData)
+// ---- WebSocket 实时更新 ----
+const { on } = useWebSocket()
+let cleanupWs: (() => void) | null = null
+
+onMounted(async () => {
+  await loadData()
+  cleanupWs = on((event) => {
+    if (event.startsWith('alert.')) loadData()
+  })
+})
+
+onUnmounted(() => {
+  cleanupWs?.()
+})
 </script>
 
 <style scoped>

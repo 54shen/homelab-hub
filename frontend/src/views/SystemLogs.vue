@@ -83,7 +83,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import {
   NButton, NEmpty, NInput, NPagination, NPopconfirm,
   NSelect, NSpace, useMessage
@@ -163,20 +163,7 @@ async function handleClear() {
 
 watch([filterLevel, filterModule], () => { page.value = 1; loadData() })
 
-// ---- 自动刷新 ----
-let timer: ReturnType<typeof setInterval> | null = null
-
-function startTimer(sec: number) {
-  if (timer) { clearInterval(timer); timer = null }
-  if (sec > 0) { timer = setInterval(loadData, sec * 1000) }
-}
-
-import { useRefreshInterval } from '../composables/useRefreshInterval'
-const refreshInterval = useRefreshInterval()
-watch(refreshInterval, startTimer, { immediate: true })
-
 onMounted(loadData)
-onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
 
 <style scoped>

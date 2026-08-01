@@ -8,9 +8,9 @@
     </div>
     <div class="topbar-right">
       <span class="topbar-username">{{ username }}</span>
-      <span class="topbar-indicator">
-        <span class="status-dot" :class="wsConnected ? 'online' : 'offline'"></span>
-        {{ wsConnected ? 'WS' : 'WS 断开' }}
+      <span class="topbar-indicator" @click="wsRealtime = !wsRealtime" title="点击切换实时推送">
+        <span class="status-dot" :class="wsConnected ? (wsRealtime ? 'online' : 'idle') : 'offline'"></span>
+        {{ wsConnected ? (wsRealtime ? '实时' : '暂停') : '断开' }}
       </span>
       <span class="topbar-time">{{ currentTime }}</span>
       <n-button text size="tiny" type="error" @click="handleLogout">退出</n-button>
@@ -22,7 +22,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NButton } from 'naive-ui'
-import { wsConnected } from '../composables/useWebSocket'
+import { wsConnected, wsRealtime } from '../composables/useWebSocket'
 
 defineProps<{ collapsed: boolean }>()
 defineEmits<{ toggle: [] }>()
@@ -121,6 +121,11 @@ onUnmounted(() => {
   display: flex; align-items: center; gap: 6px;
   background: var(--bg-page); padding: 4px 12px;
   border-radius: var(--radius-full);
+  cursor: pointer; user-select: none;
+  transition: background 0.15s;
+}
+.topbar-indicator:hover {
+  background: var(--border-light);
 }
 .topbar-time {
   font-size: 12px; color: var(--text-secondary);

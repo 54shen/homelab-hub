@@ -65,7 +65,7 @@ def get_device_variables(device_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/device/register", response_model=ApiResponse)
-def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
+async def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
     device_id = _gen_device_id(req.name, req.type)
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -107,6 +107,7 @@ def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_db), t
         _sync_timeout_kv(db, timeout_kv_key, timeout)
 
     db.commit()
+    await broadcast("device.registered", {"name": req.name, "type": req.type, "group": req.group or "默认"})
     return ApiResponse(success=True, message="OK", data={"device_id": device_id})
 
 
@@ -161,9 +162,12 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
 
 
 @router.delete("/devices/{device_id}", response_model=ApiResponse)
-def unregister_device(device_id: str, db: Session = Depends(get_db), token=Depends(auth_write)):
+async def unregister_device(device_id: str, db: Session = Depends(get_db), token=Depends(auth_write)):
     d = db.query(Device).filter(Device.id == device_id).first()
+    name = d.name if d else None
     if d:
         db.delete(d)
         db.commit()
+    if name:
+        await broadcast("device.unregistered", {"id": device_id, "name": name})
     return ApiResponse(success=True, message="OK")

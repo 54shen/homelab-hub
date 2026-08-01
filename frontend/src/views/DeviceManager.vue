@@ -3,7 +3,6 @@
     <div class="page-header">
       <h1 class="page-title">设备管理</h1>
       <n-space>
-        <RefreshControl v-model="refreshInterval" />
         <n-select
           v-model:value="filterGroup"
           :options="groupFilterOptions"
@@ -112,13 +111,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import {
   NButton, NButtonGroup, NDataTable, NEmpty, NInput, NSelect, NSpace, NTag
 } from 'naive-ui'
 import StatusBadge from '../components/StatusBadge.vue'
-import RefreshControl from '../components/RefreshControl.vue'
-import { useRefreshInterval } from '../composables/useRefreshInterval'
+import { useWebSocket } from '../composables/useWebSocket'
 import { deviceApi } from '../api'
 import type { Device } from '../types'
 
@@ -131,7 +129,6 @@ const viewMode = computed<'card' | 'table'>({
 })
 const filterGroup = ref<string | null>(null)
 const devices = ref<Device[]>([])
-const refreshInterval = useRefreshInterval()
 const haVarCounts = ref<Record<string, number>>({})
 const haSubDeviceSummary = ref<Record<string, Record<string, string>>>({})
 
@@ -237,23 +234,33 @@ async function loadData() {
   }
 }
 
-let timer: ReturnType<typeof setInterval> | null = null
+// ---- WebSocket 实时更新 ----
+const { on } = useWebSocket()
+let cleanupWs: (() => void) | null = null
 
-function startTimer(sec: number) {
-  stopTimer()
-  if (sec > 0) {
-    timer = setInterval(loadData, sec * 1000)
-  }
-}
+onMounted(async () => {
+  await loadData()
+  cleanupWs = on((event, data: any) => {
+    if (event === 'device.heartbeat') {
+      // 更新对应设备的指标
+      const dev = devices.value.find(d => d.name === data.name)
+      if (dev) {
+        if (data.cpu !== undefined && data.cpu !== null) dev.cpu = data.cpu
+        if (data.memory !== undefined && data.memory !== null) dev.memory = data.memory
+        if (data.disk !== undefined && data.disk !== null) dev.disk = data.disk
+        dev.online = data.online
+        dev.last_heartbeat = new Date().toISOString()
+      }
+    }
+    if (event === 'device.registered' || event === 'device.unregistered') {
+      loadData()
+    }
+  })
+})
 
-function stopTimer() {
-  if (timer) { clearInterval(timer); timer = null }
-}
-
-watch(refreshInterval, startTimer, { immediate: true })
-
-onMounted(() => loadData())
-onUnmounted(() => stopTimer())
+onUnmounted(() => {
+  cleanupWs?.()
+})
 </script>
 
 <style scoped>

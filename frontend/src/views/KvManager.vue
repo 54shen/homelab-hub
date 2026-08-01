@@ -3,7 +3,6 @@
     <div class="page-header">
       <h1 class="page-title">变量管理</h1>
       <n-space>
-        <RefreshControl v-model="refreshInterval" />
         <n-button size="small" quaternary @click="handleExport">
           <ion-icon name="download-outline" style="margin-right:4px;vertical-align:-2px"></ion-icon>
           导出
@@ -129,13 +128,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import {
   NButton, NCard, NDataTable, NInput, NModal, NForm, NFormItem,
   NSelect, NInputNumber, NSpace, NPopconfirm, NUpload, useMessage
 } from 'naive-ui'
-import RefreshControl from '../components/RefreshControl.vue'
-import { useRefreshInterval } from '../composables/useRefreshInterval'
+import { useWebSocket } from '../composables/useWebSocket'
 import { kvApi } from '../api'
 import type { KvEntry, KvSetRequest } from '../types'
 
@@ -319,7 +317,6 @@ async function handleImport({ file }: { file: File }) {
 
 const kvPage = ref(1)
 const kvPageSize = ref(20)
-const refreshInterval = useRefreshInterval()
 
 async function loadData() {
   try {
@@ -328,15 +325,31 @@ async function loadData() {
   } catch { data.value = [] }
 }
 
-let timer: ReturnType<typeof setInterval> | null = null
-function startTimer(sec: number) {
-  if (timer) { clearInterval(timer); timer = null }
-  if (sec > 0) timer = setInterval(loadData, sec * 1000)
-}
-watch(refreshInterval, startTimer, { immediate: true })
+// ---- WebSocket 实时更新 ----
+const { on } = useWebSocket()
+let cleanupWs: (() => void) | null = null
 
-onMounted(loadData)
-onUnmounted(() => { if (timer) clearInterval(timer) })
+onMounted(async () => {
+  await loadData()
+  cleanupWs = on((event, data: any) => {
+    if (event === 'kv.changed') {
+      // 更新或插入变量
+      const idx = data.value.findIndex((r: KvEntry) => r.key === data.key)
+      if (idx >= 0) {
+        data.value[idx] = { ...data.value[idx], value: data.value, source: data.source || data.value[idx].source, updated_at: new Date().toISOString() }
+      } else {
+        loadData() // 新增变量，刷新全部
+      }
+    }
+    if (event === 'kv.deleted') {
+      data.value = data.value.filter(r => r.key !== data.key)
+    }
+  })
+})
+
+onUnmounted(() => {
+  cleanupWs?.()
+})
 </script>
 
 <style scoped>

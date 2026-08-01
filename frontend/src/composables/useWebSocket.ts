@@ -1,17 +1,27 @@
 // ============================================================
 // Shared Center — WebSocket 连接管理
+// 全局单例：所有页面通过 useWebSocket() 获取 on/off 控制
 // ============================================================
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 
 type WsCallback = (event: string, data: unknown) => void
 
-const listeners = new Set<WsCallback>()
+const listeners = new Map<symbol, WsCallback>()
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let pingTimer: ReturnType<typeof setInterval> | null = null
 let reconnectAttempts = 0
 
 export const wsConnected = ref(false)
+
+/** 全局 WS 实时开关（localStorage 持久化） */
+export const wsRealtime = ref(
+  (() => { try { return localStorage.getItem('ws_realtime') !== '0' } catch { return true } })()
+)
+
+// 监听 wsRealtime 变化写入 localStorage
+import { watch } from 'vue'
+watch(wsRealtime, (v) => { try { localStorage.setItem('ws_realtime', v ? '1' : '0') } catch {} } )
 
 function connect() {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
@@ -28,13 +38,13 @@ function connect() {
   ws.onopen = () => {
     wsConnected.value = true
     reconnectAttempts = 0
-    // 心跳
     pingTimer = setInterval(() => {
       if (ws?.readyState === WebSocket.OPEN) ws.send('ping')
     }, 25000)
   }
 
   ws.onmessage = (ev) => {
+    if (!wsRealtime.value) return  // 开关关闭时忽略所有事件
     try {
       const msg = JSON.parse(ev.data)
       listeners.forEach((cb) => cb(msg.event, msg.data))
@@ -71,18 +81,16 @@ function disconnect() {
 }
 
 export function useWebSocket() {
+  const id = Symbol('ws')
+
   const on = (cb: WsCallback) => {
-    listeners.add(cb)
-    return () => listeners.delete(cb)
+    listeners.set(id, cb)
+    return () => listeners.delete(id)
   }
 
   onMounted(() => connect())
-  onUnmounted(() => {
-    // 仅在组件卸载时移除监听器，不断开全局连接
-    return () => {}
-  })
 
-  return { wsConnected, on }
+  return { wsConnected, wsRealtime, on }
 }
 
 // 全局初始化（在 main.ts 中调用一次）

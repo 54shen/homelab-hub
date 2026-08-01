@@ -2,7 +2,6 @@
   <div class="page-container">
     <div class="page-title-row">
       <h1 class="page-title">仪表盘</h1>
-      <RefreshControl v-model="refreshInterval" />
     </div>
 
     <!-- 统计卡片 -->
@@ -42,22 +41,6 @@
       />
     </div>
 
-    <!-- 图表 -->
-    <div class="card-grid-2" style="margin-top: 16px">
-      <n-card title="CPU 使用率" size="small">
-        <template #header-extra>
-          <span style="font-size:12px;color:var(--text-secondary)">最近 1 小时</span>
-        </template>
-        <div ref="cpuChartRef" class="chart-box"></div>
-      </n-card>
-      <n-card title="内存使用率" size="small">
-        <template #header-extra>
-          <span style="font-size:12px;color:var(--text-secondary)">最近 1 小时</span>
-        </template>
-        <div ref="memChartRef" class="chart-box"></div>
-      </n-card>
-    </div>
-
     <!-- 最近变更 -->
     <n-card title="最近变更" size="small" style="margin-top: 16px">
       <template #header-extra>
@@ -82,14 +65,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { NCard, NEmpty } from 'naive-ui'
-import * as echarts from 'echarts'
 import StatCard from '../components/StatCard.vue'
-import RefreshControl from '../components/RefreshControl.vue'
 import { dashboardApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
-import { useRefreshInterval } from '../composables/useRefreshInterval'
 import type { DashboardStats, KvHistory } from '../types'
 
 const stats = ref<DashboardStats>({
@@ -97,50 +77,6 @@ const stats = ref<DashboardStats>({
   running_services: 0, network_status: 'offline', public_ip: '--', system_health: 100
 })
 const recentChanges = ref<KvHistory[]>([])
-const refreshInterval = useRefreshInterval()
-
-// ---- 定时刷新 ----
-let timer: ReturnType<typeof setInterval> | null = null
-function startTimer(sec: number) {
-  if (timer) { clearInterval(timer); timer = null }
-  if (sec > 0) timer = setInterval(loadData, sec * 1000)
-}
-watch(refreshInterval, startTimer, { immediate: true })
-
-const cpuChartRef = ref<HTMLElement | null>(null)
-const memChartRef = ref<HTMLElement | null>(null)
-let cpuChart: echarts.ECharts | null = null
-let memChart: echarts.ECharts | null = null
-
-const cpuData = ref<number[]>([15, 22, 30, 28, 35, 32, 32])
-const memData = ref<number[]>([40, 42, 45, 48, 46, 45, 45])
-
-function makeAreaOption(data: number[], color: string) {
-  return {
-    grid: { top: 8, right: 12, bottom: 24, left: 40 },
-    xAxis: {
-      type: 'category' as const,
-      data: ['-60m', '-50m', '-40m', '-30m', '-20m', '-10m', '现在'],
-      axisLine: { show: false }, axisTick: { show: false },
-      axisLabel: { fontSize: 10, color: '#94A3B8' }
-    },
-    yAxis: {
-      type: 'value' as const, min: 0, max: 100,
-      splitLine: { lineStyle: { color: '#EDF0F4', type: 'dashed' as const } },
-      axisLabel: { fontSize: 10, color: '#94A3B8', formatter: '{value}%' }
-    },
-    series: [{
-      data, type: 'line' as const, smooth: true, symbol: 'none' as const,
-      lineStyle: { color, width: 2 },
-      areaStyle: {
-        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: color + '30' },
-          { offset: 1, color: color + '04' }
-        ])
-      }
-    }]
-  }
-}
 
 async function loadData() {
   try {
@@ -166,10 +102,8 @@ let cleanupWs: (() => void) | null = null
 
 onMounted(async () => {
   await loadData()
-  // WebSocket 事件监听
   cleanupWs = on((event, data: any) => {
     if (event === 'kv.changed') {
-      // 变量变更时刷新最近变更列表
       recentChanges.value.unshift({
         id: Date.now(), key: data.key,
         old_value: null, new_value: data.value,
@@ -177,49 +111,21 @@ onMounted(async () => {
       })
       if (recentChanges.value.length > 10) recentChanges.value.pop()
     }
-    if (event === 'device.heartbeat') {
-      // 设备心跳更新 CPU/MEM 图表数据
-      if (data.cpu !== undefined && data.cpu !== null) {
-        cpuData.value.push(data.cpu)
-        cpuData.value.shift()
-        cpuChart?.setOption(makeAreaOption(cpuData.value, '#5B8DEF'))
-      }
-      if (data.memory !== undefined && data.memory !== null) {
-        memData.value.push(data.memory)
-        memData.value.shift()
-        memChart?.setOption(makeAreaOption(memData.value, '#22C55E'))
-      }
-    }
+    // 有变化时静默刷新统计数据
     if (event === 'heartbeat' || event === 'kv.changed' || event === 'device.heartbeat') {
-      // 有变化时静默刷新统计数据
       dashboardApi.stats().then(r => { if (r.data) stats.value = r.data }).catch(() => {})
     }
   })
-
-  // 初始化图表
-  await nextTick()
-  if (cpuChartRef.value) {
-    cpuChart = echarts.init(cpuChartRef.value)
-    cpuChart.setOption(makeAreaOption(cpuData.value, '#5B8DEF'))
-  }
-  if (memChartRef.value) {
-    memChart = echarts.init(memChartRef.value)
-    memChart.setOption(makeAreaOption(memData.value, '#22C55E'))
-  }
 })
 
 onUnmounted(() => {
   cleanupWs?.()
-  if (timer) clearInterval(timer)
-  cpuChart?.dispose()
-  memChart?.dispose()
 })
 </script>
 
 <style scoped>
 .page-title-row { display: flex; align-items: center; gap: 12px; }
 .page-title-row .page-title { margin-bottom: 0; }
-.chart-box { width: 100%; height: 200px; }
 .change-list { display: flex; flex-direction: column; }
 .change-item {
   display: flex; align-items: center; gap: 16px;

@@ -136,11 +136,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   NButton, NEmpty, NForm, NFormItem, NInput, NModal,
   NPopconfirm, NSelect, NSpace, NSwitch, NTag, useMessage
 } from 'naive-ui'
+import { useWebSocket } from '../composables/useWebSocket'
 import { webhookApi } from '../api'
 import type { WebhookConfig } from '../types'
 
@@ -283,7 +284,20 @@ function setBodyExample(key: string) {
   bodyText.value = BODY_EXAMPLES[key] || ''
 }
 
-onMounted(loadData)
+// ---- WebSocket 实时更新 ----
+const { on } = useWebSocket()
+let cleanupWs: (() => void) | null = null
+
+onMounted(async () => {
+  await loadData()
+  cleanupWs = on((event) => {
+    if (event.startsWith('webhook.')) loadData()
+  })
+})
+
+onUnmounted(() => {
+  cleanupWs?.()
+})
 </script>
 
 <style scoped>

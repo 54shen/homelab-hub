@@ -5,7 +5,6 @@
         <ion-icon name="arrow-back-outline" style="margin-right:4px;vertical-align:-2px"></ion-icon>
         返回设备列表
       </n-button>
-      <RefreshControl v-model="refreshInterval" />
     </div>
 
     <n-spin :show="loading">
@@ -145,7 +144,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem,
@@ -153,8 +152,6 @@ import {
 } from 'naive-ui'
 import * as echarts from 'echarts'
 import StatusBadge from '../components/StatusBadge.vue'
-import RefreshControl from '../components/RefreshControl.vue'
-import { useRefreshInterval } from '../composables/useRefreshInterval'
 import { deviceApi, historyApi, kvApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
 import type { Device, KvEntry } from '../types'
@@ -316,7 +313,6 @@ const message = useMessage()
 const timeoutInput = ref('')
 const editingTimeout = ref(false)
 const timeoutInputRef = ref<HTMLInputElement | null>(null)
-const refreshInterval = useRefreshInterval()
 
 function startTimeoutEdit() {
   editingTimeout.value = true
@@ -366,13 +362,6 @@ async function loadData() {
     loading.value = false
   }
 }
-
-let timer: ReturnType<typeof setInterval> | null = null
-function startTimer(sec: number) {
-  if (timer) { clearInterval(timer); timer = null }
-  if (sec > 0) timer = setInterval(loadData, sec * 1000)
-}
-watch(refreshInterval, startTimer, { immediate: true })
 
 onMounted(async () => {
   await loadData()
@@ -431,7 +420,6 @@ function onResize() { hbChart?.resize() }
 window.addEventListener('resize', onResize)
 
 onUnmounted(() => {
-  if (timer) clearInterval(timer)
   window.removeEventListener('resize', onResize)
   hbChart?.dispose()
 })

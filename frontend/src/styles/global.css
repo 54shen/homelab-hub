@@ -227,6 +227,7 @@ html, body, #app {
   box-shadow: 0 0 0 2px rgba(0,0,0,0.04);
 }
 .status-dot.online { background: var(--color-success); }
+.status-dot.idle { background: var(--text-secondary); }
 .status-dot.warning { background: var(--color-warning); }
 .status-dot.offline { background: var(--color-danger); }
 

@@ -3,7 +3,6 @@
     <div class="page-header">
       <h1 class="page-title">历史记录</h1>
       <n-space>
-        <RefreshControl v-model="refreshInterval" />
         <n-button size="small" @click="exportCsv">
           <ion-icon name="download-outline" style="margin-right:4px;vertical-align:-2px"></ion-icon>
           导出 CSV
@@ -72,8 +71,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import { NButton, NDataTable, NDatePicker, NInput, NSelect, NSpace } from 'naive-ui'
-import RefreshControl from '../components/RefreshControl.vue'
-import { useRefreshInterval } from '../composables/useRefreshInterval'
+import { useWebSocket } from '../composables/useWebSocket'
 import { historyApi, kvApi } from '../api'
 import type { KvHistory, KvEntry } from '../types'
 
@@ -86,7 +84,6 @@ const dateRange = ref<[number, number] | null>([Date.now() - 30 * 86400000, Date
 const allKeys = ref<KvEntry[]>([])
 const histPage = ref(1)
 const histPageSize = ref(50)
-const refreshInterval = useRefreshInterval()
 
 // 前缀/来源选项（从现有 KV keys 提取）
 const prefixOptions = computed(() => {
@@ -197,16 +194,34 @@ async function loadKeys() {
   } catch { allKeys.value = [] }
 }
 
-// 定时刷新
-let timer: ReturnType<typeof setInterval> | null = null
-function startTimer(sec: number) {
-  if (timer) { clearInterval(timer); timer = null }
-  if (sec > 0) timer = setInterval(loadData, sec * 1000)
-}
-watch(refreshInterval, startTimer)
+// ---- WebSocket 实时更新 ----
+const { on } = useWebSocket()
+let cleanupWs: (() => void) | null = null
 
-onMounted(() => { loadData(); loadKeys() })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+onMounted(async () => {
+  await loadData()
+  await loadKeys()
+  cleanupWs = on((event, data: any) => {
+    if (event === 'kv.changed' && !filterPrefix.value && !filterSource.value) {
+      // 无筛选时在顶部插入新变更
+      data.value.unshift({
+        id: Date.now(), key: data.key,
+        old_value: null, new_value: data.value,
+        source: data.source || 'ws', changed_at: new Date().toISOString()
+      })
+      if (data.value.length > 50) data.value.pop()
+      total.value += 1
+    }
+    if (event === 'kv.changed' || event === 'kv.deleted') {
+      // 有筛选条件时可能受影响，重新加载
+      if (filterPrefix.value || filterSource.value) loadData()
+    }
+  })
+})
+
+onUnmounted(() => {
+  cleanupWs?.()
+})
 </script>
 
 <style scoped>
