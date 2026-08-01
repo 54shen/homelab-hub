@@ -241,8 +241,14 @@ html, body, #app {
 }
 
 /* ---- 响应式 ---- */
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .card-grid-2, .card-grid-3 {
     grid-template-columns: 1fr;
+  }
+  .page-container {
+    padding: var(--gap-sm);
+  }
+  .page-title {
+    font-size: 18px;
   }
 }

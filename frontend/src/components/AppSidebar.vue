@@ -1,5 +1,5 @@
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ collapsed: collapsed }">
     <div class="sidebar-brand">
       <div class="brand-icon">
         <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
@@ -19,6 +19,7 @@
           :to="item.path"
           class="nav-item"
           :class="{ active: isActive(item.path) }"
+          @click="onNavClick"
         >
           <ion-icon :name="item.icon" class="nav-icon"></ion-icon>
           <span class="nav-label">{{ item.label }}</span>
@@ -35,7 +36,16 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
 
+defineProps<{ collapsed: boolean }>()
+const emit = defineEmits<{ toggle: [] }>()
+
 const route = useRoute()
+
+function onNavClick() {
+  if (window.innerWidth < 768) {
+    emit('toggle')
+  }
+}
 
 const menuGroups = [
   {
@@ -91,6 +101,7 @@ function isActive(path: string): boolean {
   z-index: 100;
   user-select: none;
   border-right: 1px solid var(--border-light);
+  transition: transform 0.25s ease;
 }
 
 /* ---- Brand ---- */
@@ -169,6 +180,11 @@ function isActive(path: string): boolean {
   color: var(--color-info);
 }
 
+/* ---- Collapsed ---- */
+.sidebar.collapsed {
+  transform: translateX(-100%);
+}
+
 /* ---- Footer ---- */
 .sidebar-footer {
   padding: 12px 20px;
@@ -177,5 +193,12 @@ function isActive(path: string): boolean {
 .version {
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+/* ---- 移动端：侧边栏浮在内容上方 ---- */
+@media (max-width: 767px) {
+  .sidebar {
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.12);
+  }
 }
 </style>

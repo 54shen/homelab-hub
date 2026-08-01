@@ -1,6 +1,9 @@
 <template>
-  <header class="topbar">
+  <header class="topbar" :class="{ collapsed: collapsed }">
     <div class="topbar-left">
+      <button class="hamburger" @click="$emit('toggle')" :title="collapsed ? '展开菜单' : '收起菜单'">
+        <ion-icon name="menu-outline" class="hamburger-icon"></ion-icon>
+      </button>
       <span class="topbar-title">{{ pageTitle }}</span>
     </div>
     <div class="topbar-right">
@@ -20,6 +23,9 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NButton } from 'naive-ui'
 import { wsConnected } from '../composables/useWebSocket'
+
+defineProps<{ collapsed: boolean }>()
+defineEmits<{ toggle: [] }>()
 
 const route = useRoute()
 const router = useRouter()
@@ -73,9 +79,41 @@ onUnmounted(() => {
   justify-content: space-between;
   padding: 0 var(--gap-lg);
   z-index: 90;
+  transition: left 0.25s ease;
 }
-.topbar-left { display: flex; align-items: center; }
+.topbar.collapsed {
+  left: 0;
+}
+.topbar-left { display: flex; align-items: center; gap: 8px; }
 .topbar-title { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+
+/* ---- 汉堡菜单按钮 ---- */
+.hamburger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+.hamburger:hover {
+  background: var(--bg-page);
+}
+.hamburger-icon {
+  font-size: 22px;
+}
+
+@media (max-width: 767px) {
+  .topbar {
+    padding: 0 var(--gap-sm);
+  }
+}
 .topbar-right { display: flex; align-items: center; gap: 16px; }
 .topbar-username { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .topbar-indicator {
