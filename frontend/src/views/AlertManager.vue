@@ -162,10 +162,12 @@ import {
   NPopconfirm, NSelect, NSpace, NSwitch, NTag, useMessage
 } from 'naive-ui'
 import { useWebSocket } from '../composables/useWebSocket'
+import { useFieldLabels } from '../composables/useFieldLabels'
 import { alertApi, deviceApi, kvApi, webhookApi } from '../api'
 import type { AlertRule, Device, KvEntry, WebhookConfig } from '../types'
 
 const message = useMessage()
+const { labelOf } = useFieldLabels()
 const rules = ref<AlertRule[]>([])
 const modalVisible = ref(false)
 const editingId = ref<number | null>(null)
@@ -196,7 +198,7 @@ const keyOptions = computed(() => {
   if (!pfx) return []
   return allKeys.value
     .filter(r => r.key.startsWith(pfx + '.'))
-    .map(r => ({ label: r.key.slice(pfx.length + 1), value: r.key }))
+    .map(r => ({ label: labelOf(r.key.slice(pfx.length + 1)), value: r.key }))
 })
 
 // 设备选项
@@ -330,7 +332,7 @@ function initSelectors(rule: Partial<AlertRule>) {
 // ---- 显示辅助 ----
 function displayKey(key: string): string {
   if (key.startsWith('__device__:')) return key.slice(11)
-  return key
+  return labelOf(key)
 }
 
 function resolveTargetName(action: string, target: string): string {

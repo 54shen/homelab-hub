@@ -137,11 +137,13 @@ import {
   NSelect, NInputNumber, NSpace, NPopconfirm, NUpload, useMessage
 } from 'naive-ui'
 import { useWebSocket } from '../composables/useWebSocket'
+import { useFieldLabels } from '../composables/useFieldLabels'
 import { kvApi } from '../api'
 import HistoryModal from '../components/HistoryModal.vue'
 import type { KvEntry, KvSetRequest } from '../types'
 
 const message = useMessage()
+const { labelOf } = useFieldLabels()
 const data = ref<KvEntry[]>([])
 const showHistory = ref(false)
 const historyKey = ref('')
@@ -213,7 +215,14 @@ const groupedData = computed(() => {
 
 const columns = [
   { type: 'selection' as const, width: 40 },
-  { title: 'Key', key: 'key', width: 180, ellipsis: { tooltip: true } },
+  {
+    title: 'Key', key: 'key', width: 180, ellipsis: { tooltip: true },
+    render(row: KvEntry) {
+      const label = labelOf(row.key)
+      if (label === row.key) return row.key  // 无映射，显示原文
+      return h('span', { title: row.key, style: 'cursor:help;border-bottom:1px dotted var(--text-secondary)' }, label)
+    }
+  },
   { title: 'Value', key: 'value', width: 160, ellipsis: { tooltip: true } },
   { title: '类型', key: 'type', width: 80 },
   { title: '来源', key: 'source', width: 140 },

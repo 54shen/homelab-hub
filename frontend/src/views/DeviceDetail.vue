@@ -82,19 +82,19 @@
 
         <!-- ======== 普通设备：资源指标 ======== -->
         <div v-if="device.type !== 'ha' && device.online" class="card-grid" style="margin-top:16px">
-          <n-card size="small" title="CPU" class="metric-clickable" @click="openHistory(device.name + '.CPU使用率')">
+          <n-card size="small" title="CPU" class="metric-clickable" @click="openHistory(device.name + '.cpu')">
             <div class="metric-big">{{ device.cpu ?? '—' }}<span class="unit">%</span></div>
             <n-progress type="line" :percentage="device.cpu ?? 0" :color="device.cpu && device.cpu > 80 ? '#EF4444' : '#5B8DEF'" :height="6" :border-radius="3" />
           </n-card>
-          <n-card size="small" title="内存" class="metric-clickable" @click="openHistory(device.name + '.内存使用率')">
+          <n-card size="small" title="内存" class="metric-clickable" @click="openHistory(device.name + '.memory')">
             <div class="metric-big">{{ device.memory ?? '—' }}<span class="unit">%</span></div>
             <n-progress type="line" :percentage="device.memory ?? 0" color="#22C55E" :height="6" :border-radius="3" />
           </n-card>
-          <n-card size="small" title="磁盘" class="metric-clickable" @click="openHistory(device.name + '.磁盘使用率')">
+          <n-card size="small" title="磁盘" class="metric-clickable" @click="openHistory(device.name + '.disk')">
             <div class="metric-big">{{ device.disk ?? '—' }}<span class="unit">%</span></div>
             <n-progress type="line" :percentage="device.disk ?? 0" color="#F59E0B" :height="6" :border-radius="3" />
           </n-card>
-          <n-card size="small" title="音量" class="metric-clickable" @click="openHistory(device.name + '.系统音量')">
+          <n-card size="small" title="音量" class="metric-clickable" @click="openHistory(device.name + '.volume')">
             <div class="metric-big">{{ (device.volume ?? 0) < 0 ? '🔇' : ((device.volume ?? '—') + '%') }}</div>
             <n-progress type="line" :percentage="(device.volume ?? 0) < 0 ? 0 : (device.volume ?? 0)" :color="(device.volume ?? 0) < 0 ? '#9CA3AF' : '#A855F7'" :height="6" :border-radius="3" />
           </n-card>
@@ -494,12 +494,12 @@ onMounted(async () => {
       device.value.last_heartbeat = nowStr
 
       // 变量表 — 同步心跳字段
-      syncVar('运行时长', data.uptime)
-      syncVar('CPU使用率', data.cpu)
-      syncVar('内存使用率', data.memory)
-      syncVar('磁盘使用率', data.disk)
-      syncVar('系统音量', data.volume)
-      syncVar('IP地址', data.ip)
+      syncVar('uptime', data.uptime)
+      syncVar('cpu', data.cpu)
+      syncVar('memory', data.memory)
+      syncVar('disk', data.disk)
+      syncVar('volume', data.volume)
+      syncVar('ip', data.ip)
     }
 
     // ========== 2. KV 变更 — 补刀心跳没覆盖的变量 ==========

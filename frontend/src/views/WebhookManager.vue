@@ -22,7 +22,7 @@
           <n-switch :value="w.enabled" @update:value="(v: boolean) => handleToggle(w.id, v)" size="small" />
         </div>
 
-        <code class="wc-url">{{ w.url }}</code>
+        <code class="wc-url">{{ displayUrl(w.url) }}</code>
 
         <div class="wc-events">
           <n-tag v-for="ev in w.event_types" :key="ev" size="tiny" :bordered="false" round>{{ ev }}</n-tag>
@@ -54,16 +54,29 @@
           <n-input v-model:value="form.name" placeholder="例如：微信通知" />
         </n-form-item>
         <n-form-item label="URL" required>
-          <n-input v-model:value="form.url" placeholder="https://..." />
-          <template #feedback>
-            <div class="body-help" style="margin-top:4px">
-              <span class="body-help-title">支持变量拼接：</span>
-              <code>{<!-- -->{ip}}</code>触发设备IP
-              <code>{<!-- -->{device}}</code>触发设备名
-              <code>{<!-- -->{ip:设备名}}</code>指定设备IP
-              <code>{<!-- -->{mac:设备名}}</code>指定设备MAC
+          <div style="display:flex;flex-direction:column;gap:8px;width:100%">
+            <!-- 输入框 -->
+            <n-input ref="urlInputRef" v-model:value="form.url" placeholder="http://..." @input="schedulePreview" />
+            <!-- 可视化芯片行 -->
+            <div class="url-chip-row">
+              <template v-for="(seg, i) in displaySegments" :key="i">
+                <span v-if="seg.chip" class="url-chip">{{ seg.label }}<span class="chip-x" @click.stop="removeChip(i)"> ×</span></span>
+                <span v-else class="url-chip-text">{{ seg.text }}</span>
+              </template>
+              <span v-if="displaySegments.length === 0" class="url-chip-empty">http://...</span>
             </div>
-          </template>
+            <!-- 解析预览 -->
+            <div v-if="previewResolved" class="url-preview">🔗 {{ previewResolved }}</div>
+            <!-- 插入变量 -->
+            <n-select
+              v-model:value="selectedKeyVar"
+              :options="kvVarOptions"
+              placeholder="+ 插入变量"
+              filterable
+              clearable
+              @update:value="insertKeyVar"
+            />
+          </div>
         </n-form-item>
         <n-form-item label="方法">
           <n-select v-model:value="form.method" :options="methodOptions" style="width:120px" />
@@ -127,7 +140,7 @@
       </n-form>
       <template #footer>
         <n-space justify="end">
-          <n-button @click="modalVisible = false">取消</n-button>
+          <n-button @click="closeModal()">取消</n-button>
           <n-button type="primary" @click="handleSave">保存</n-button>
         </n-space>
       </template>
@@ -136,22 +149,108 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import {
   NButton, NEmpty, NForm, NFormItem, NInput, NModal,
   NPopconfirm, NSelect, NSpace, NSwitch, NTag, useMessage
 } from 'naive-ui'
 import { useWebSocket } from '../composables/useWebSocket'
-import { webhookApi } from '../api'
-import type { WebhookConfig } from '../types'
+import { useFieldLabels } from '../composables/useFieldLabels'
+import { webhookApi, kvApi } from '../api'
+import type { WebhookConfig, KvEntry } from '../types'
 
 const message = useMessage()
+const { labelOf } = useFieldLabels()
 const webhooks = ref<WebhookConfig[]>([])
 const modalVisible = ref(false)
 const editingId = ref<number | null>(null)
 const headersText = ref('')
 const bodyText = ref('')
 const bodyExtraText = ref('')
+const urlInputRef = ref<HTMLInputElement | null>(null)
+const selectedKeyVar = ref<string | null>(null)
+const allKvKeys = ref<KvEntry[]>([])
+const previewResolved = ref('')
+let previewTimer: ReturnType<typeof setTimeout> | null = null
+
+const kvVarOptions = computed(() =>
+  allKvKeys.value.map(e => ({
+    label: `${labelOf(e.key)} (${e.key.split('.').pop()})`,
+    value: e.key
+  }))
+)
+
+// ── 显示区：解析 URL → 文本段 + 芯片段 ──
+interface DispSeg { text?: string; chip?: string; label?: string }
+const displaySegments = computed<DispSeg[]>(() => {
+  const url = form.value.url
+  const segs: DispSeg[] = []
+  const re = /\{\{([^}]+)\}\}/g
+  let last = 0
+  for (const m of url.matchAll(re)) {
+    if (m.index! > last) segs.push({ text: url.slice(last, m.index!) })
+    segs.push({ chip: m[1].trim(), label: labelOf(m[1].trim()) })
+    last = m.index! + m[0].length
+  }
+  if (last < url.length) segs.push({ text: url.slice(last) })
+  return segs
+})
+
+// ── 插入变量到光标位置 ──
+function insertKeyVar(key: string | null) {
+  if (!key) return
+  const tag = `{{${key}}}`
+  const input = (urlInputRef.value as any)?.inputElRef as HTMLInputElement | null
+  if (input) {
+    const start = input.selectionStart ?? form.value.url.length
+    const end = input.selectionEnd ?? form.value.url.length
+    form.value.url = form.value.url.slice(0, start) + tag + form.value.url.slice(end)
+    nextTick(() => {
+      input.setSelectionRange(start + tag.length, start + tag.length)
+      input.focus()
+    })
+  } else {
+    form.value.url += tag
+  }
+  selectedKeyVar.value = null
+  schedulePreview()
+}
+
+// ── 从芯片行删除 ──
+function removeChip(chipIdx: number) {
+  let url = form.value.url
+  let ci = -1
+  const re = /\{\{([^}]+)\}\}/g
+  let last = 0
+  const parts: { start: number; end: number }[] = []
+  for (const m of url.matchAll(re)) {
+    ci++
+    if (ci === chipIdx) {
+      // 删除这个 {{...}} 以及前面可能多余的 . 或 /
+      let s = m.index!, e = m.index! + m[0].length
+      // 如果前后都是分隔符，合并
+      if (s > 0 && e < url.length && url[s - 1] === url[e]) {
+        s-- // 删掉一个重复分隔符
+      }
+      form.value.url = url.slice(0, s) + url.slice(e)
+      schedulePreview()
+      return
+    }
+  }
+}
+
+// ── 预览 ──
+function schedulePreview() {
+  if (previewTimer) clearTimeout(previewTimer)
+  previewTimer = setTimeout(async () => {
+    const url = form.value.url
+    if (!url || !url.includes('{{')) { previewResolved.value = ''; return }
+    try {
+      const res = await webhookApi.previewUrl(url)
+      previewResolved.value = (res.data as any)?.url || ''
+    } catch { previewResolved.value = '' }
+  }, 400)
+}
 
 const defaultForm = () => ({
   name: '', url: '', method: 'POST' as WebhookConfig['method'],
@@ -173,6 +272,14 @@ const eventTypeOptions = [
   { label: '告警触发', value: 'alert.triggered' }
 ]
 
+// URL 卡片展示：{{key}} → {{映射后的中文名}}
+function displayUrl(url: string): string {
+  return url.replace(/\{\{([^}]+)\}\}/g, (_m, key: string) => {
+    const mapped = labelOf(key.trim())
+    return mapped !== key.trim() ? `{{${mapped}}}` : _m
+  })
+}
+
 function methodType(m: string) {
   return { GET: 'info', POST: 'success', PUT: 'warning' }[m] as 'info' | 'success' | 'warning'
 }
@@ -182,12 +289,22 @@ const headersParsed = computed(() => {
   catch { return {} }
 })
 
+async function loadKvKeys() {
+  try {
+    const res = await kvApi.list()
+    if (res.data) allKvKeys.value = res.data
+  } catch { allKvKeys.value = [] }
+}
+
 function openCreate() {
   editingId.value = null
   form.value = defaultForm()
   headersText.value = ''
   bodyText.value = ''
   bodyExtraText.value = ''
+  selectedKeyVar.value = null
+  previewResolved.value = ''
+  loadKvKeys()
   modalVisible.value = true
 }
 
@@ -200,7 +317,16 @@ function openEdit(w: WebhookConfig) {
   headersText.value = JSON.stringify(w.headers, null, 2)
   bodyText.value = w.body || ''
   bodyExtraText.value = w.body_extra || ''
+  selectedKeyVar.value = null
+  previewResolved.value = ''
+  loadKvKeys()
+  schedulePreview()
   modalVisible.value = true
+}
+
+function closeModal() {
+  modalVisible.value = false
+  if (previewTimer) { clearTimeout(previewTimer); previewTimer = null }
 }
 
 async function handleSave() {
@@ -212,7 +338,7 @@ async function handleSave() {
     } else {
       await webhookApi.create(data)
     }
-    modalVisible.value = false
+    closeModal()
     message.success('保存成功')
     await loadData()
   } catch { message.error('保存失败') }
@@ -227,9 +353,15 @@ async function handleToggle(id: number, enabled: boolean) {
 
 async function handleTest(id: number) {
   try {
-    await webhookApi.test(id)
-    message.success('测试请求已发送')
-  } catch { message.error('测试失败') }
+    const res = await webhookApi.test(id)
+    if (res.data?.success) {
+      message.success('测试请求已发送')
+    } else {
+      message.error(res.data?.message || '测试失败')
+    }
+  } catch (e: any) {
+    message.error(e?.response?.data?.message || '测试失败')
+  }
 }
 
 async function handleDelete(id: number) {
@@ -376,7 +508,6 @@ onUnmounted(() => {
   color: var(--color-danger);
   font-weight: 600;
 }
-
 .body-help {
   font-size: 11px;
   color: var(--text-secondary);
@@ -392,5 +523,71 @@ onUnmounted(() => {
 .body-help-title {
   font-weight: 600;
   margin-right: 4px;
+}
+/* ── 芯片可视化行 ── */
+.url-chip-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  padding: 6px 10px;
+  min-height: 36px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-sm);
+  font-family: monospace;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.url-chip-text {
+  white-space: pre-wrap;
+  color: var(--text-primary);
+}
+.url-chip-empty {
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+.url-chip {
+  display: inline-block;
+  background: #5B8DEF18;
+  color: #5B8DEF;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.chip-x {
+  cursor: pointer;
+  opacity: 0.4;
+  font-weight: 700;
+  margin-left: 2px;
+}
+.chip-x:hover {
+  opacity: 1;
+  color: #EF4444;
+}
+/* ── 映射预览 ── */
+.url-preview-display {
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--text-secondary);
+  background: var(--bg-page);
+  padding: 3px 10px;
+  border-radius: 4px;
+  min-height: 22px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+/* 真实 IP 预览 */
+.url-preview {
+  font-size: 12px;
+  font-family: monospace;
+  color: #22C55E;
+  background: #F0FFF4;
+  padding: 4px 10px;
+  border-radius: 4px;
+  margin-top: 4px;
+  word-break: break-all;
 }
 </style>

@@ -143,7 +143,7 @@ def _report_state(action: str) -> None:
 
             # KV 上报（静音时值为 -1）
             items = [
-                {"key": pfx + "系统音量", "value": str(vol_val), "type": "int", "source": "command"},
+                {"key": pfx + "volume", "value": str(vol_val), "type": "int", "source": "command"},
             ]
             for item in items:
                 post("/api/kv", item, retry=1, delay=1)
@@ -372,35 +372,35 @@ def report_kv() -> None:
     def a(k, v, t="string"):
         items.append({"key": pfx + k, "value": str(v) if v is not None else "", "type": t})
 
-    a("主机名", info["hostname"])
-    a("操作系统", info["os"])
-    a("系统版本", info["os_release"])
-    a("系统架构", info["architecture"])
-    a("IP地址", info["ip"])
-    a("MAC地址", info["mac"])
-    a("运行时长", info["uptime"])
+    a("hostname", info["hostname"])
+    a("os", info["os"])
+    a("os_release", info["os_release"])
+    a("architecture", info["architecture"])
+    a("ip", info["ip"])
+    a("mac", info["mac"])
+    a("uptime", info["uptime"])
     if info["cpu"] is not None:
-        a("CPU使用率", info["cpu"], "int")
+        a("cpu", info["cpu"], "int")
     if info["memory"] is not None:
-        a("内存使用率", info["memory"], "int")
+        a("memory", info["memory"], "int")
     if info["disk"] is not None:
-        a("磁盘使用率", info["disk"], "int")
+        a("disk", info["disk"], "int")
     if info.get("process_count"):
-        a("进程数", info["process_count"], "int")
+        a("process_count", info["process_count"], "int")
     if info.get("mem_total_gb"):
-        a("内存总量_GB", info["mem_total_gb"], "float")
+        a("mem_total_gb", info["mem_total_gb"], "float")
     if info.get("disk_total_gb"):
-        a("磁盘总量_GB", info["disk_total_gb"], "float")
+        a("disk_total_gb", info["disk_total_gb"], "float")
     if info.get("net_sent_mb"):
-        a("网络发送_MB", info["net_sent_mb"], "float")
+        a("net_sent_mb", info["net_sent_mb"], "float")
     if info.get("net_recv_mb"):
-        a("网络接收_MB", info["net_recv_mb"], "float")
+        a("net_recv_mb", info["net_recv_mb"], "float")
     if info.get("cpu_count"):
-        a("CPU核心数", info["cpu_count"], "int")
+        a("cpu_count", info["cpu_count"], "int")
     if info.get("boot_time"):
-        a("启动时间", info["boot_time"])
+        a("boot_time", info["boot_time"])
     if info.get("volume") is not None:
-        a("系统音量", info["volume"], "int")
+        a("volume", info["volume"], "int")
     for item in items:
         item["source"] = SOURCE
         post("/api/kv", item, retry=1, delay=2)

@@ -160,6 +160,9 @@ export const webhookApi = {
   },
   test(id: number) {
     return http.post<ApiResponse>(`/webhooks/${id}/test`)
+  },
+  previewUrl(url: string) {
+    return http.post<{ url: string }>('/webhooks/preview-url', { url })
   }
 }
 
@@ -209,6 +212,41 @@ export const settingsApi = {
   },
   saveSystemConfig(config: Record<string, unknown>) {
     return http.put<ApiResponse>('/settings/system', config)
+  }
+}
+
+// ---- 字段映射 API ----
+export interface FieldMapping {
+  id: number
+  field_key: string
+  display_name: string
+}
+
+export const fieldMappingApi = {
+  list() {
+    return http.get<FieldMapping[]>('/field-mappings')
+  },
+  create(data: { field_key: string; display_name: string }) {
+    return http.post<FieldMapping>('/field-mappings', data)
+  },
+  update(id: number, data: { field_key?: string; display_name?: string }) {
+    return http.put<FieldMapping>(`/field-mappings/${id}`, data)
+  },
+  delete(id: number) {
+    return http.delete<ApiResponse>(`/field-mappings/${id}`)
+  },
+  exportTemplate() {
+    return http.get('/field-mappings/export/template', { responseType: 'blob' })
+  },
+  importCsv(file: File) {
+    const form = new FormData()
+    form.append('file', file)
+    return http.post<ApiResponse>('/field-mappings/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  unmapped() {
+    return http.get<string[]>('/field-mappings/unmapped')
   }
 }
 

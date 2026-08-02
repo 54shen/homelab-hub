@@ -30,6 +30,12 @@ const router = createRouter({
           meta: { title: '变量管理', icon: 'code-outline', group: '数据' }
         },
         {
+          path: 'mappings',
+          name: 'FieldMappings',
+          component: () => import('../views/FieldMappings.vue'),
+          meta: { title: '字段映射', icon: 'language-outline', group: '数据' }
+        },
+        {
           path: 'devices',
           name: 'Devices',
           component: () => import('../views/DeviceManager.vue'),

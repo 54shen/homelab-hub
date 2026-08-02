@@ -177,7 +177,7 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
             kv_changes.append({"key": key, "value": new_val, "old_value": None, "source": req.source, "changed_at": now_str})
 
     if req.volume is not None:
-        _sync_kv("系统音量", str(req.volume), str(old_volume) if old_volume is not None else None)
+        _sync_kv("volume", str(req.volume), str(old_volume) if old_volume is not None else None)
 
     db.commit()
 

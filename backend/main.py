@@ -134,7 +134,7 @@ async def auth_middleware(request: Request, call_next):
 
 
 # ---- 注册路由 ----
-from routers import kv, devices, dashboard, alerts, webhooks, logs, settings, ha_incoming, history
+from routers import kv, devices, dashboard, alerts, webhooks, logs, settings, ha_incoming, history, field_mappings
 
 app.include_router(kv.router)
 app.include_router(devices.router)
@@ -145,6 +145,7 @@ app.include_router(logs.router)
 app.include_router(settings.router)
 app.include_router(ha_incoming.router)
 app.include_router(history.router)
+app.include_router(field_mappings.router)
 
 
 @app.get("/")

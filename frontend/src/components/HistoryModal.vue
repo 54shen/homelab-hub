@@ -62,10 +62,12 @@ import { computed, h, onUnmounted, ref, watch } from 'vue'
 import { NButton, NDataTable, NDatePicker, NEmpty, NModal, NSpace } from 'naive-ui'
 import { historyApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
+import { useFieldLabels } from '../composables/useFieldLabels'
 import type { KvHistory } from '../types'
 
 const props = defineProps<{ show: boolean; keyProp: string }>()
 defineEmits<{ 'update:show': [value: boolean] }>()
+const { labelOf } = useFieldLabels()
 
 // ---- 数据 ----
 const items = ref<KvHistory[]>([])
@@ -91,7 +93,7 @@ const pagination = computed(() => ({
 // ---- 格式化：系统音量的 -1 显示为 🔇 静音 ----
 function formatVolVal(val: string | null): string {
   if (val == null) return '(新增)'
-  if (props.keyProp?.endsWith('系统音量') && val === '-1') return '🔇 静音'
+  if ((props.keyProp?.endsWith('.volume') || props.keyProp?.endsWith('volume')) && val === '-1') return '🔇 静音'
   return val
 }
 
@@ -101,7 +103,14 @@ const columns = [
     title: '时间', key: 'changed_at', width: 160,
     render(row: KvHistory) { return row.changed_at || '—' }
   },
-  { title: 'Key', key: 'key', width: 180, ellipsis: { tooltip: true } },
+  {
+    title: 'Key', key: 'key', width: 180, ellipsis: { tooltip: true },
+    render(row: KvHistory) {
+      const label = labelOf(row.key)
+      if (label === row.key) return row.key
+      return h('span', { title: row.key, style: 'cursor:help;border-bottom:1px dotted var(--text-secondary)' }, label)
+    }
+  },
   {
     title: '旧值 → 新值', key: 'change', width: 240,
     render(row: KvHistory) {

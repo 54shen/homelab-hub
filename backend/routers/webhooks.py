@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db, SessionLocal
-from models import WebhookConfig, Device
+from models import WebhookConfig, Device, KvEntry, SystemLog
 from schemas import WebhookCreate, WebhookUpdate, WebhookOut, ApiResponse
 from auth import auth_write
 from websocket_manager import broadcast
@@ -63,6 +63,8 @@ async def delete_webhook(webhook_id: int, db: Session = Depends(get_db), token=D
 
 # 匹配 {{属性:设备名}} 语法，如 {{ip:大爷的ROG}}
 _DEVICE_ATTR_RE = re.compile(r'\{\{(\w+):([^}]+)\}\}')
+# 匹配 {{key}} 语法 — 查 KV 表取值
+_KV_VAR_RE = re.compile(r'\{\{([^}]+)\}\}')
 
 
 def _resolve_device_attrs(text: str) -> str:
@@ -88,6 +90,44 @@ def _resolve_device_attrs(text: str) -> str:
         db.close()
 
 
+def _resolve_kv_vars(text: str) -> str:
+    """解析 {{key}} 语法，从 KV 表查询 key 对应的值（兜底）"""
+    # 收集所有 {{...}} 占位符
+    matches = list(_KV_VAR_RE.finditer(text))
+    if not matches:
+        return text
+
+    # 收集要查的 key
+    keys_to_lookup = set()
+    for m in matches:
+        k = m.group(1).strip()
+        # 跳过已知特殊变量（已由 _resolve_text 处理）和 data/rule_body
+        if k in ('event', 'timestamp', 'webhook', 'data', 'rule_body'):
+            continue
+        # 跳过 {{属性:设备名}} 格式（由 _resolve_device_attrs 处理）
+        if ':' in k:
+            continue
+        keys_to_lookup.add(k)
+
+    if not keys_to_lookup:
+        return text
+
+    db = SessionLocal()
+    try:
+        result = text
+        for m in matches:
+            k = m.group(1).strip()
+            if k not in keys_to_lookup:
+                continue
+            entry = db.query(KvEntry).filter(KvEntry.key == k).first()
+            if entry:
+                result = result.replace(m.group(0), entry.value)
+            # 找不到则保持原样
+        return result
+    finally:
+        db.close()
+
+
 def _resolve_text(text: str, wh_name: str, event: str, event_data: dict | None, now_str: str) -> str:
     """替换文本中所有 {{...}} 模板变量（不含 {{data}} 和 {{rule_body}}，这两个由 _build_payload 处理）"""
     result = text
@@ -98,8 +138,10 @@ def _resolve_text(text: str, wh_name: str, event: str, event_data: dict | None, 
         for k, v in event_data.items():
             if v is not None:
                 result = result.replace("{{" + k + "}}", str(v))
-    # 最后解析 {{属性:设备名}} 写死设备引用
+    # {{属性:设备名}} 写死设备引用
     result = _resolve_device_attrs(result)
+    # 兜底：查 KV 表 {{key}}
+    result = _resolve_kv_vars(result)
     return result
 
 
@@ -107,6 +149,26 @@ def resolve_url(url: str, wh_name: str, event: str, event_data: dict | None = No
     """替换 URL 中所有 {{...}} 模板变量，支持拼接设备 IP 等"""
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return _resolve_text(url, wh_name, event, event_data, now_str)
+
+
+def _log_webhook_test_error(db: Session, wh: WebhookConfig, error: str, now_str: str):
+    """测试 Webhook 失败时写入系统日志"""
+    try:
+        log_entry = SystemLog(
+            level="error",
+            module="webhook",
+            message=f"Webhook 测试失败: {wh.name}",
+            detail=json.dumps({
+                "webhook_id": wh.id,
+                "webhook_name": wh.name,
+                "url": wh.url,
+                "error": error
+            }, ensure_ascii=False),
+            created_at=now_str
+        )
+        db.add(log_entry)
+    except Exception as e:
+        print(f"[Webhook] 测试错误日志写入失败: {e}")
 
 
 def _build_payload(wh: WebhookConfig, event: str, event_data: dict | None = None, rule_body_template: str | None = None) -> dict:
@@ -171,6 +233,17 @@ def _build_payload(wh: WebhookConfig, event: str, event_data: dict | None = None
     return default
 
 
+@router.post("/webhooks/preview-url")
+def preview_url(data: dict, token=Depends(auth_write)):
+    """解析 URL 模板，返回真实 URL 预览"""
+    url = (data or {}).get("url", "")
+    try:
+        resolved = resolve_url(url, "", "preview")
+    except Exception:
+        resolved = url
+    return {"url": resolved}
+
+
 @router.post("/webhooks/{webhook_id}/test", response_model=ApiResponse)
 async def test_webhook(webhook_id: int, db: Session = Depends(get_db), token=Depends(auth_write)):
     wh = db.query(WebhookConfig).filter(WebhookConfig.id == webhook_id).first()
@@ -202,6 +275,7 @@ async def test_webhook(webhook_id: int, db: Session = Depends(get_db), token=Dep
             wh.last_sent = now_str
             if resp.status_code >= 400:
                 wh.fail_count += 1
+                _log_webhook_test_error(db, wh, f"请求失败 HTTP {resp.status_code}", now_str)
                 db.commit()
                 return ApiResponse(success=False, message=f"请求失败 HTTP {resp.status_code}")
             wh.fail_count = 0
@@ -210,5 +284,6 @@ async def test_webhook(webhook_id: int, db: Session = Depends(get_db), token=Dep
     except Exception as e:
         wh.last_sent = now_str
         wh.fail_count += 1
+        _log_webhook_test_error(db, wh, f"连接失败: {type(e).__name__}: {e}", now_str)
         db.commit()
         return ApiResponse(success=False, message=f"连接失败: {str(e)}")

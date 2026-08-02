@@ -65,22 +65,22 @@
 
         <!-- 指标：普通设备 -->
         <div v-if="d.online && d.type !== 'ha'" class="dc-metrics">
-          <div v-if="d.cpu !== undefined && d.cpu !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.CPU使用率')">
+          <div v-if="d.cpu !== undefined && d.cpu !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.cpu')">
             <span class="dm-label">CPU</span>
             <div class="dm-bar"><div class="dm-fill cpu" :style="{ width: (d.cpu ?? 0) + '%' }"></div></div>
             <span class="dm-val">{{ d.cpu }}%</span>
           </div>
-          <div v-if="d.memory !== undefined && d.memory !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.内存使用率')">
+          <div v-if="d.memory !== undefined && d.memory !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.memory')">
             <span class="dm-label">MEM</span>
             <div class="dm-bar"><div class="dm-fill mem" :style="{ width: (d.memory ?? 0) + '%' }"></div></div>
             <span class="dm-val">{{ d.memory }}%</span>
           </div>
-          <div v-if="d.disk !== undefined && d.disk !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.磁盘使用率')">
+          <div v-if="d.disk !== undefined && d.disk !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.disk')">
             <span class="dm-label">DSK</span>
             <div class="dm-bar"><div class="dm-fill disk" :style="{ width: (d.disk ?? 0) + '%' }"></div></div>
             <span class="dm-val">{{ d.disk }}%</span>
           </div>
-          <div v-if="d.volume !== undefined && d.volume !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.系统音量')">
+          <div v-if="d.volume !== undefined && d.volume !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.volume')">
             <span class="dm-label">VOL</span>
             <div class="dm-bar">
               <div class="dm-fill vol" :class="{ muted: (d.volume ?? 0) < 0 }" :style="{ width: (d.volume ?? 0) < 0 ? '0%' : (d.volume ?? 0) + '%' }"></div>
