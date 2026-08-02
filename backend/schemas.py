@@ -244,6 +244,26 @@ class KvHistoryListOut(BaseModel):
     total: int
 
 
+# ---- Field Mapping ----
+class FieldMappingCreate(BaseModel):
+    field_key: str
+    display_name: str
+
+
+class FieldMappingUpdate(BaseModel):
+    field_key: Optional[str] = None
+    display_name: Optional[str] = None
+
+
+class FieldMappingOut(BaseModel):
+    id: int
+    field_key: str
+    display_name: str
+
+    class Config:
+        orm_mode = True
+
+
 # ---- Settings ----
 class SystemConfigUpdate(BaseModel):
     cleanup_interval_hours: Optional[int] = None

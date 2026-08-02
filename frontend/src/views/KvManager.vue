@@ -133,7 +133,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import {
-  NButton, NCard, NDataTable, NInput, NModal, NForm, NFormItem,
+  NButton, NCard, NDataTable, NEmpty, NInput, NModal, NForm, NFormItem,
   NSelect, NInputNumber, NSpace, NPopconfirm, NUpload, useMessage
 } from 'naive-ui'
 import { useWebSocket } from '../composables/useWebSocket'
@@ -149,7 +149,7 @@ const searchKey = ref('')
 const filterPrefix = ref<string | null>(null)
 const filterSource = ref<string | null>(null)
 const groupByPrefix = ref(false)
-const checkedKeys = ref<string[]>([])
+const checkedKeys = ref<(string | number)[]>([])
 const modalVisible = ref(false)
 const isEditing = ref(false)
 
@@ -214,7 +214,7 @@ const groupedData = computed(() => {
 const columns = [
   { type: 'selection' as const, width: 40 },
   { title: 'Key', key: 'key', width: 180, ellipsis: { tooltip: true } },
-  { title: 'Value', key: 'value', width: 220, ellipsis: { tooltip: true } },
+  { title: 'Value', key: 'value', width: 160, ellipsis: { tooltip: true } },
   { title: '类型', key: 'type', width: 80 },
   { title: '来源', key: 'source', width: 140 },
   {
@@ -249,7 +249,7 @@ const columns = [
 // 分组视图列（无 checkbox，前缀已在标题显示）
 const groupColumns = columns.filter(c => c.type !== 'selection')
 
-function handleCheck(keys: string[]) {
+function handleCheck(keys: (string | number)[]) {
   checkedKeys.value = keys
 }
 
@@ -293,7 +293,7 @@ async function handleDelete(key: string) {
 
 async function handleBatchDelete() {
   try {
-    await kvApi.batchDelete({ keys: checkedKeys.value })
+    await kvApi.batchDelete({ keys: checkedKeys.value as string[] })
     message.success(`已删除 ${checkedKeys.value.length} 个变量`)
     checkedKeys.value = []
     await loadData()
@@ -314,9 +314,12 @@ async function handleExport() {
   } catch { message.error('导出失败') }
 }
 
-async function handleImport({ file }: { file: File }) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function handleImport(data: any) {
   try {
-    await kvApi.importJson(file.file!)
+    const f = data?.file?.file as File | undefined
+    if (!f) return
+    await kvApi.importJson(f)
     message.success('导入成功')
     await loadData()
   } catch { message.error('导入失败，请检查文件格式') }

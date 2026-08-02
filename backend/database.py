@@ -103,3 +103,15 @@ def _migrate():
             conn.commit()
         except Exception:
             pass
+        # field_mappings (v2.9) — 字段英文→中文映射表
+        try:
+            conn.execute(sqlalchemy.text("""
+                CREATE TABLE IF NOT EXISTS field_mappings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    field_key TEXT UNIQUE NOT NULL,
+                    display_name TEXT NOT NULL
+                )
+            """))
+            conn.commit()
+        except Exception:
+            pass

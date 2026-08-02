@@ -2,7 +2,7 @@
 // Shared Center — WebSocket 连接管理
 // 全局单例：所有页面通过 useWebSocket() 获取 on/off 控制
 // ============================================================
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, getCurrentInstance } from 'vue'
 
 type WsCallback = (event: string, data: unknown) => void
 
@@ -88,7 +88,11 @@ export function useWebSocket() {
     return () => listeners.delete(id)
   }
 
-  onMounted(() => connect())
+  if (getCurrentInstance()) {
+    onMounted(() => connect())
+  } else {
+    connect()
+  }
 
   return { wsConnected, wsRealtime, on }
 }

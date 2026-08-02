@@ -145,6 +145,15 @@ class KvHistory(Base):
     changed_at = Column(String(32), default=_now)
 
 
+# ---- 字段映射表（英文 key → 中文显示名） ----
+class FieldMapping(Base):
+    __tablename__ = "field_mappings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    field_key = Column(String(128), unique=True, nullable=False, index=True)
+    display_name = Column(String(128), nullable=False)
+
+
 # ---- 系统日志表 ----
 class SystemLog(Base):
     __tablename__ = "system_logs"
