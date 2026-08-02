@@ -155,7 +155,11 @@ async function loadData() {
           ? `最旧=${items.value[items.value.length - 1].changed_at} 最新=${items.value[0].changed_at}`
           : '空')
     }
-  } catch { items.value = []; total.value = 0 }
+  } catch (e: any) {
+    console.error('[历史记录 API] 加载失败:', e?.message || e, e?.response?.status)
+    items.value = []
+    total.value = 0
+  }
   finally { loading.value = false }
 }
 
