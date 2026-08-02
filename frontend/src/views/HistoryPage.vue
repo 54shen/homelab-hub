@@ -80,14 +80,18 @@ const filterStart = ref<number | null>(null)
 const filterEnd = ref<number | null>(null)
 const seenKeys = new Set<string>()
 
-const pagination = computed(() => ({
-  page: page.value,
-  pageSize: pageSize.value,
-  itemCount: total.value,
-  showSizePicker: true,
-  pageSizes: [10, 20, 50],
-  prefix: () => `共 ${total.value} 条`
-}))
+const pagination = computed(() => {
+  const p = {
+    page: page.value,
+    pageSize: pageSize.value,
+    itemCount: total.value,
+    showSizePicker: true,
+    pageSizes: [10, 20, 50],
+    prefix: `共 ${total.value} 条`
+  }
+  console.log('[历史记录 pagination]', JSON.stringify({ page: p.page, pageSize: p.pageSize, total: p.itemCount, loading: loading.value }))
+  return p
+})
 
 // ── 格式化音量 -1 → 🔇静音 ──
 function fmtVol(val: string | null): string {
