@@ -148,6 +148,10 @@ async function loadData() {
       total.value = res.data.total
       seenKeys.clear()
       items.value.forEach(i => seenKeys.add(`${i.key}|${i.changed_at}`))
+      console.log('[History API] 加载完成, 总数:', total.value, '首页时间范围:',
+        items.value.length > 0
+          ? `最旧=${items.value[items.value.length-1].changed_at} 最新=${items.value[0].changed_at}`
+          : '空')
     }
   } catch {
     items.value = []
@@ -215,10 +219,15 @@ watch(() => props.show, (visible) => {
           }
           // 按时间倒序插入到正确位置
           const ts = new Date(newItem.changed_at).getTime()
+          console.log('[History WS] 新条目:', newItem.changed_at, 'ts:', ts)
           let idx = 0
           for (; idx < items.value.length; idx++) {
-            if (new Date((items.value[idx] as any).changed_at).getTime() < ts) break
+            const existing = (items.value[idx] as any).changed_at
+            const existingTs = new Date(existing).getTime()
+            if (existingTs < ts) break
           }
+          console.log('[History WS] 插入位置:', idx, '/', items.value.length, '当前列表:',
+            items.value.slice(0, 5).map((x: any) => `${x.changed_at} (${new Date(x.changed_at).getTime()})`))
           items.value.splice(idx, 0, newItem)
           if (items.value.length > pageSize.value) {
             const removed = items.value.pop()!
