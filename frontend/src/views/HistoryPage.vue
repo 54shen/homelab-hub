@@ -111,9 +111,6 @@ function fmtVol(val: string | null): string {
 // ── 列定义 ──
 const columns = [
   {
-    title: '#', key: '_idx', width: 50
-  },
-  {
     title: '时间', key: 'changed_at', width: 160,
     render(row: RowItem) { return row.changed_at || '—' }
   },
