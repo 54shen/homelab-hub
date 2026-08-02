@@ -343,6 +343,7 @@ class Agent:
             "disk": sys_info["disk"],
             "uptime": sys_info["uptime"],
             "ip": sys_info["ip"],
+            "source": self.cfg.get("source", "agent"),
         }
 
         result = self._post("/api/device/heartbeat", payload,

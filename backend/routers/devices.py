@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Device, KvEntry
+from models import Device, KvEntry, KvHistory
 from schemas import (
     DeviceRegisterRequest, DeviceHeartbeatRequest,
     DeviceOut, KvEntryOut, ApiResponse
@@ -13,7 +13,6 @@ from schemas import (
 from websocket_manager import broadcast
 from auth import auth_write
 from config import DEFAULT_HEARTBEAT_TIMEOUT
-from models import KvEntry
 
 router = APIRouter(prefix="/api", tags=["设备管理"])
 
@@ -43,7 +42,7 @@ def _sync_timeout_kv(db: Session, key: str, timeout: int):
 
 @router.get("/devices", response_model=list[DeviceOut])
 def list_devices(db: Session = Depends(get_db)):
-    return db.query(Device).order_by(Device.online.desc(), Device.last_heartbeat.desc()).all()
+    return db.query(Device).order_by(Device.sort_order.asc(), Device.online.desc(), Device.last_heartbeat.desc()).all()
 
 
 @router.get("/devices/{device_id}", response_model=DeviceOut)
@@ -142,11 +141,46 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
         device.uptime = req.uptime
     if req.ip:
         device.ip = req.ip
+    # 保存旧值（在更新前），用于 KV 同步
+    old_volume = device.volume
+    old_muted = device.muted
+
     if req.volume is not None:
         device.volume = req.volume
     device.muted = req.muted
     if req.heartbeat_timeout > 0:
         device.heartbeat_timeout = req.heartbeat_timeout
+
+    # ---- 同步心跳字段到 KV（驱动历史记录 + 变量表实时更新） ----
+    kv_changes: list[dict] = []
+    pfx = req.name + "."
+
+    def _sync_kv(suffix: str, new_val: str, old_val: str | None):
+        """写入/更新 KV 变量 + 历史记录"""
+        key = pfx + suffix
+        entry = db.query(KvEntry).filter(KvEntry.key == key).first()
+        if entry:
+            if entry.value == new_val:
+                return
+            old = entry.value
+            entry.value = new_val
+            entry.updated_at = now_str
+            db.add(KvHistory(key=key, old_value=old, new_value=new_val,
+                             source=req.source, retention_days=entry.retention_days,
+                             changed_at=now_str))
+            kv_changes.append({"key": key, "value": new_val, "old_value": old, "source": req.source, "changed_at": now_str})
+        else:
+            db.add(KvEntry(key=key, value=new_val, type="string", source=req.source,
+                           retention_days=180, updated_at=now_str))
+            db.add(KvHistory(key=key, old_value=None, new_value=new_val,
+                             source=req.source, retention_days=180,
+                             changed_at=now_str))
+            kv_changes.append({"key": key, "value": new_val, "old_value": None, "source": req.source, "changed_at": now_str})
+
+    if req.volume is not None:
+        _sync_kv("系统音量", str(req.volume), str(old_volume) if old_volume is not None else None)
+    _sync_kv("静音状态", "静音" if req.muted else "非静音",
+             "静音" if old_muted else "非静音")
 
     db.commit()
 
@@ -157,7 +191,15 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
         timeout = device.heartbeat_timeout if device.heartbeat_timeout and device.heartbeat_timeout > 0 else DEFAULT_HEARTBEAT_TIMEOUT
         schedule_offline_check(req.name, timeout)
 
-    await broadcast("device.heartbeat", {"name": req.name, "online": req.online, "cpu": req.cpu, "memory": req.memory, "disk": req.disk, "volume": req.volume, "muted": req.muted})
+    await broadcast("device.heartbeat", {
+        "name": req.name, "online": req.online,
+        "cpu": req.cpu, "memory": req.memory, "disk": req.disk,
+        "volume": req.volume, "muted": req.muted,
+        "uptime": req.uptime, "ip": req.ip
+    })
+    # 同步心跳字段的 KV 变更广播（驱动变量表 + 历史弹窗实时更新）
+    for c in kv_changes:
+        await broadcast("kv.changed", c)
     return ApiResponse(success=True, message="OK")
 
 
@@ -171,3 +213,22 @@ async def unregister_device(device_id: str, db: Session = Depends(get_db), token
     if name:
         await broadcast("device.unregistered", {"id": device_id, "name": name})
     return ApiResponse(success=True, message="OK")
+
+
+# ---- 设备排序 ----
+from pydantic import BaseModel as PydanticBase
+
+class ReorderItem(PydanticBase):
+    id: str
+    sort_order: int
+
+class ReorderRequest(PydanticBase):
+    items: list[ReorderItem]
+
+@router.post("/devices/reorder", response_model=ApiResponse)
+def reorder_devices(req: ReorderRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
+    """拖拽排序后批量更新 sort_order"""
+    for item in req.items:
+        db.query(Device).filter(Device.id == item.id).update({"sort_order": item.sort_order})
+    db.commit()
+    return ApiResponse(success=True, message="已更新排序")

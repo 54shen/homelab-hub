@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from websocket_manager import broadcast
 from database import get_db
-from models import KvEntry
+from models import KvEntry, KvHistory
 from schemas import (
     KvSetRequest, KvBatchRequest, KvBatchDeleteRequest,
     KvEntryOut, ApiResponse
@@ -44,6 +44,12 @@ def _set_kv_sync(req: KvSetRequest, db: Session):
         entry.updated_at = now_str
         if req.expire_seconds is not None:
             entry.expire_seconds = req.expire_seconds
+        # 记录历史（retention_days 从 entry 快照）
+        db.add(KvHistory(
+            key=req.key, old_value=old, new_value=new_val,
+            source=req.source, retention_days=entry.retention_days,
+            changed_at=now_str
+        ))
         return now_str, True, old
 
     # ---- 新 key → 创建 entry ----
@@ -57,6 +63,12 @@ def _set_kv_sync(req: KvSetRequest, db: Session):
         updated_at=now_str
     )
     db.add(entry)
+    # 记录历史（新建 key，old_value=None）
+    db.add(KvHistory(
+        key=req.key, old_value=None, new_value=str(req.value),
+        source=req.source, retention_days=req.retention_days,
+        changed_at=now_str
+    ))
     return now_str, True, None
 
 

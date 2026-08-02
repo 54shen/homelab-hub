@@ -35,7 +35,7 @@ class KvEntryOut(BaseModel):
     retention_days: int
 
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 
 # ---- Device ----
@@ -60,6 +60,7 @@ class DeviceHeartbeatRequest(BaseModel):
     muted: bool = False  # 是否静音
     uptime: str = ""
     ip: str = ""
+    source: str = "agent"  # 数据来源标识，Agent 可自定义
     heartbeat_timeout: int = 0  # 可在心跳中动态更新超时
 
 
@@ -82,11 +83,12 @@ class DeviceOut(BaseModel):
     uptime: str
     notes: str
     heartbeat_timeout: int
+    sort_order: int = 0
     last_heartbeat: str
     registered_at: str
 
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 
 # ---- Dashboard ----
@@ -157,7 +159,7 @@ class AlertRuleOut(BaseModel):
     body: Optional[str]
 
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 
 # ---- Webhook ----
@@ -196,7 +198,7 @@ class WebhookOut(BaseModel):
     fail_count: int
 
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 
 # ---- System Log ----
@@ -209,7 +211,7 @@ class SystemLogOut(BaseModel):
     created_at: str
 
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 
 class SystemLogListOut(BaseModel):
@@ -222,6 +224,25 @@ class ApiResponse(BaseModel):
     success: bool = True
     message: str = ""
     data: Optional[dict] = None
+
+
+# ---- KvHistory ----
+class KvHistoryOut(BaseModel):
+    id: int
+    key: str
+    old_value: Optional[str]  # None = 新建 key
+    new_value: str
+    source: str
+    retention_days: int
+    changed_at: str
+
+    class Config:
+        orm_mode = True
+
+
+class KvHistoryListOut(BaseModel):
+    items: list[KvHistoryOut]
+    total: int
 
 
 # ---- Settings ----

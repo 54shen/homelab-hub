@@ -124,6 +124,9 @@
         </n-space>
       </template>
     </n-modal>
+
+    <!-- 历史记录弹窗 -->
+    <HistoryModal v-model:show="showHistory" :key-prop="historyKey" />
   </div>
 </template>
 
@@ -135,10 +138,13 @@ import {
 } from 'naive-ui'
 import { useWebSocket } from '../composables/useWebSocket'
 import { kvApi } from '../api'
+import HistoryModal from '../components/HistoryModal.vue'
 import type { KvEntry, KvSetRequest } from '../types'
 
 const message = useMessage()
 const data = ref<KvEntry[]>([])
+const showHistory = ref(false)
+const historyKey = ref('')
 const searchKey = ref('')
 const filterPrefix = ref<string | null>(null)
 const filterSource = ref<string | null>(null)
@@ -228,6 +234,7 @@ const columns = [
     render(row: KvEntry) {
       return h('div', { style: 'display:flex;gap:4px' }, [
         h(NButton, { size: 'tiny', quaternary: true, onClick: () => openEditModal(row) }, { default: () => '编辑' }),
+        h(NButton, { size: 'tiny', quaternary: true, onClick: () => { historyKey.value = row.key; showHistory.value = true } }, { default: () => '历史' }),
         h(NPopconfirm, {
           onPositiveClick: () => handleDelete(row.key)
         }, {
@@ -331,18 +338,32 @@ let cleanupWs: (() => void) | null = null
 
 onMounted(async () => {
   await loadData()
-  cleanupWs = on((event, data: any) => {
+  cleanupWs = on((event, payload: any) => {
     if (event === 'kv.changed') {
-      // 更新或插入变量
-      const idx = data.value.findIndex((r: KvEntry) => r.key === data.key)
+      const idx = data.value.findIndex((r: KvEntry) => r.key === payload.key)
       if (idx >= 0) {
-        data.value[idx] = { ...data.value[idx], value: data.value, source: data.source || data.value[idx].source, updated_at: new Date().toISOString() }
+        data.value[idx] = {
+          ...data.value[idx],
+          value: payload.value,
+          source: payload.source || data.value[idx].source,
+          updated_at: payload.changed_at || new Date().toLocaleString('sv-SE').replace('T', ' ')
+        }
       } else {
-        loadData() // 新增变量，刷新全部
+        // 新变量，插入头部
+        data.value.unshift({
+          id: 0,
+          key: payload.key,
+          value: payload.value,
+          type: 'string',
+          source: payload.source || 'ws',
+          updated_at: payload.changed_at || new Date().toLocaleString('sv-SE').replace('T', ' '),
+          expire_seconds: null,
+          retention_days: 180
+        })
       }
     }
     if (event === 'kv.deleted') {
-      data.value = data.value.filter(r => r.key !== data.key)
+      data.value = data.value.filter(r => r.key !== payload.key)
     }
   })
 })

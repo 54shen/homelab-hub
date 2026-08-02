@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Device, KvEntry, SystemLog
+from models import Device, KvEntry, KvHistory, SystemLog
 from schemas import DashboardStatsOut, DbStatusOut, TimelineEvent
 import os
 
@@ -49,8 +49,13 @@ def dashboard_stats(db: Session = Depends(get_db)):
 
 @router.get("/dashboard/recent", response_model=list)
 def recent_changes(limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):
-    """最近变更（历史记录已移除，返回空列表保持兼容）"""
-    return []
+    """最近 KV 值变更记录"""
+    rows = db.query(KvHistory).order_by(KvHistory.changed_at.desc()).limit(limit).all()
+    return [
+        {"id": r.id, "key": r.key, "old_value": r.old_value,
+         "new_value": r.new_value, "source": r.source, "changed_at": r.changed_at}
+        for r in rows
+    ]
 
 
 @router.get("/dashboard/db-status", response_model=DbStatusOut)
@@ -69,11 +74,13 @@ def db_status(db: Session = Depends(get_db)):
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
     active_24h = db.query(KvEntry).filter(KvEntry.updated_at >= yesterday).count()
 
+    history_count = db.query(KvHistory).count()
+
     return DbStatusOut(
         file_size=file_size,
         total_keys=total_keys,
         active_keys_24h=active_24h,
-        history_count=0
+        history_count=history_count
     )
 
 

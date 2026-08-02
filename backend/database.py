@@ -81,3 +81,25 @@ def _migrate():
             conn.commit()
         except Exception:
             pass
+        # kv_history (v2.7) — KV 值变更历史记录表
+        try:
+            conn.execute(sqlalchemy.text("""
+                CREATE TABLE IF NOT EXISTS kv_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    key TEXT NOT NULL,
+                    old_value TEXT,
+                    new_value TEXT NOT NULL,
+                    source TEXT DEFAULT '',
+                    retention_days INTEGER DEFAULT 180,
+                    changed_at TEXT DEFAULT (datetime('now','localtime'))
+                )
+            """))
+            conn.commit()
+        except Exception:
+            pass
+        # devices.sort_order (v2.8) — 手动拖拽排序
+        try:
+            conn.execute(sqlalchemy.text("ALTER TABLE devices ADD COLUMN sort_order INTEGER DEFAULT 0"))
+            conn.commit()
+        except Exception:
+            pass

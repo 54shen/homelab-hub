@@ -11,6 +11,7 @@ import type {
   KvBatchDeleteRequest,
   KvBatchRequest,
   KvEntry,
+  KvHistory,
   KvSetRequest,
   SystemLog,
   WebhookConfig
@@ -94,6 +95,10 @@ export const deviceApi = {
   unregister(id: string) {
     return http.delete<ApiResponse>(`/devices/${id}`)
   },
+  /** 拖拽排序 */
+  reorder(items: { id: string; sort_order: number }[]) {
+    return http.post<ApiResponse>('/devices/reorder', { items })
+  },
   /** 设备变量 */
   variables(id: string) {
     return http.get<KvEntry[]>(`/devices/${id}/variables`)
@@ -155,6 +160,17 @@ export const webhookApi = {
   },
   test(id: number) {
     return http.post<ApiResponse>(`/webhooks/${id}/test`)
+  }
+}
+
+// ---- 历史记录 API ----
+
+export const historyApi = {
+  list(params: { key?: string; search?: string; start?: string; end?: string; page?: number; page_size?: number }) {
+    return http.get<{ items: KvHistory[]; total: number }>('/history', { params })
+  },
+  exportCsv(params: { key?: string; search?: string; start?: string; end?: string }) {
+    return http.get('/history/export', { params, responseType: 'blob' })
   }
 }
 

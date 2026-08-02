@@ -34,6 +34,7 @@ export interface Device {
   uptime?: string
   notes: string
   heartbeat_timeout: number
+  sort_order: number
   last_heartbeat: string
   registered_at: string
 }
@@ -130,4 +131,15 @@ export interface TimelineEvent {
   title: string
   description: string
   color: string
+}
+
+/** 历史记录 */
+export interface KvHistory {
+  id: number
+  key: string
+  old_value: string | null
+  new_value: string
+  source: string
+  retention_days: number
+  changed_at: string
 }

@@ -36,7 +36,7 @@ DEVICE_GROUP = "PC"
 INTERVAL     = 5                       # 心跳间隔（秒）
 REPORT_KV    = True                     # 是否上报 KV 变量
 KV_INTERVAL  = 6                        # 每 N 次心跳上报一次 KV
-SOURCE       = "agent"
+SOURCE       = "我的agent"
 
 # Flask 指令监听端口
 FLASK_PORT   = int(os.getenv("PC_PORT", "11253"))
@@ -156,6 +156,7 @@ def _report_state(action: str) -> None:
                 "cpu": info["cpu"], "memory": info["memory"], "disk": info["disk"],
                 "volume": info.get("volume"), "muted": info.get("muted", False),
                 "uptime": info["uptime"], "ip": info["ip"],
+                "source": SOURCE,
             }, retry=1, delay=1)
             if result and result.get("success"):
                 log.info("即时心跳已发送 → VOL=%d%%  %s", vol_pct, "🔇 已静音" if muted else "🔊 已取消静音")
@@ -349,6 +350,7 @@ def heartbeat() -> bool:
         "cpu": info["cpu"], "memory": info["memory"], "disk": info["disk"],
         "volume": info.get("volume"), "muted": info.get("muted", False),
         "uptime": info["uptime"], "ip": info["ip"],
+        "source": SOURCE,
     }, retry=1, delay=2)
     if result and result.get("success"):
         log.info("♥ 心跳  CPU:%s%%  MEM:%s%%  DISK:%s%%  VOL:%s%%  %s  IP:%s",

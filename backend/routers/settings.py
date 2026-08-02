@@ -22,8 +22,11 @@ def _model_to_dict(model_class, db: Session):
 
 @router.post("/settings/clean-history", response_model=ApiResponse)
 def clean_history(db: Session = Depends(get_db), token=Depends(auth_write)):
-    """手动清理过期历史数据（历史记录表已移除，保留兼容）"""
-    return ApiResponse(success=True, message="历史记录功能已移除")
+    """手动清空所有历史记录"""
+    from models import KvHistory
+    deleted = db.query(KvHistory).delete()
+    db.commit()
+    return ApiResponse(success=True, message=f"已清理 {deleted} 条历史记录")
 
 
 @router.get("/settings/backup")

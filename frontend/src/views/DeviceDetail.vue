@@ -132,6 +132,9 @@
           <n-data-table v-else :columns="varColumns" :data="variables" :bordered="false" size="small" />
         </n-card>
 
+        <!-- 历史记录弹窗 -->
+        <HistoryModal v-model:show="showHistory" :key-prop="historyKey" />
+
         <!-- ======== 普通设备：心跳历史 ======== -->
         <n-card v-if="device.type !== 'ha'" title="心跳历史" size="small" style="margin-top:16px">
           <div ref="heartbeatChartRef" class="chart-box"></div>
@@ -144,7 +147,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, nextTick } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem,
@@ -152,6 +155,7 @@ import {
 } from 'naive-ui'
 import * as echarts from 'echarts'
 import StatusBadge from '../components/StatusBadge.vue'
+import HistoryModal from '../components/HistoryModal.vue'
 import { deviceApi, kvApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
 import type { Device, KvEntry } from '../types'
@@ -163,6 +167,8 @@ const deviceId = route.params.id as string
 const loading = ref(true)
 const device = ref<Device | null>(null)
 const variables = ref<KvEntry[]>([])
+const showHistory = ref(false)
+const historyKey = ref('')
 const heartbeatChartRef = ref<HTMLElement | null>(null)
 let hbChart: echarts.ECharts | null = null
 const cpuHistory = ref<[string, number][]>([])
@@ -179,11 +185,90 @@ function updateChart() {
   })
 }
 
+// ---- 设备变量编辑 ----
+const editingVarKey = ref<string | null>(null)
+const editValue = ref('')
+
+function startEdit(row: KvEntry) {
+  editingVarKey.value = row.key
+  editValue.value = row.value
+  nextTick(() => {
+    const input = document.querySelector<HTMLInputElement>('.var-edit-input')
+    input?.focus()
+    input?.select()
+  })
+}
+
+async function saveEdit(row: KvEntry) {
+  if (!editingVarKey.value) return
+  const newVal = editValue.value
+  editingVarKey.value = null
+  if (newVal === row.value) return  // 未改动
+  try {
+    const username = localStorage.getItem('sc_username') || 'admin'
+    await kvApi.set({ key: row.key, value: newVal, type: row.type, source: `${username}(Web)` })
+    row.value = newVal
+    row.updated_at = new Date().toLocaleString('sv-SE').replace('T', ' ')
+    message.success('已修改')
+  } catch { message.error('修改失败') }
+}
+
+function cancelEdit() {
+  editingVarKey.value = null
+}
+
+async function deleteVar(key: string) {
+  try {
+    await kvApi.delete(key)
+    variables.value = variables.value.filter(v => v.key !== key)
+    message.success('已删除')
+  } catch { message.error('删除失败') }
+}
+
 const varColumns = [
-  { title: 'Key', key: 'key', width: 200 },
-  { title: 'Value', key: 'value', width: 200 },
-  { title: '类型', key: 'type', width: 80 },
-  { title: '更新时间', key: 'updated_at', width: 170 }
+  { title: 'Key', key: 'key', width: 180 },
+  {
+    title: 'Value', key: 'value', width: 200,
+    render(row: KvEntry) {
+      if (editingVarKey.value === row.key) {
+        return h('input', {
+          class: 'var-edit-input',
+          value: editValue.value,
+          onInput: (e: Event) => { editValue.value = (e.target as HTMLInputElement).value },
+          onKeydown: (e: KeyboardEvent) => {
+            if (e.key === 'Enter') saveEdit(row)
+            if (e.key === 'Escape') cancelEdit()
+          },
+          onBlur: () => cancelEdit(),
+          style: 'width:100%;padding:2px 6px;border:1px solid #5B8DEF;border-radius:4px;font-size:12px;outline:none;background:var(--bg-card)'
+        })
+      }
+      return row.value
+    }
+  },
+  { title: '类型', key: 'type', width: 70 },
+  { title: '更新时间', key: 'updated_at', width: 150 },
+  {
+    title: '操作', key: 'actions', width: 130,
+    render(row: KvEntry) {
+      if (editingVarKey.value === row.key) {
+        return h('span', { style: 'font-size:12px;color:var(--text-secondary)' }, 'Enter 保存')
+      }
+      return h('span', { style: 'display:flex;gap:4px' }, [
+        h(NButton, { size: 'tiny', quaternary: true, onClick: () => startEdit(row) }, { default: () => '修改' }),
+        h(NPopconfirm, {
+          positiveText: '确认', negativeText: '取消',
+          onPositiveClick: () => deleteVar(row.key)
+        }, {
+          trigger: () => h(NButton, { size: 'tiny', quaternary: true, style: 'color:#EF4444' }, { default: () => '删除' }),
+          default: () => `确定要删除变量 "${row.key}" 吗？`
+        }),
+        h(NButton, { size: 'tiny', quaternary: true,
+          onClick: () => { historyKey.value = row.key; showHistory.value = true }
+        }, { default: () => '历史' })
+      ])
+    }
+  }
 ]
 
 function iconForType(type: string): string {
@@ -364,27 +449,71 @@ onMounted(async () => {
     })
     updateChart()
   }
-  // WebSocket 实时更新
+  // WebSocket 实时更新 — 首次 API 后全部走 WS
   const { on } = useWebSocket()
-  on((event, data: any) => {
-    if (event === 'device.heartbeat' && data.name === device.value?.name) {
+  const cleanupWs = on((event, data: any) => {
+    if (!device.value) return
+
+    const devName = device.value.name
+    const nowStr = new Date().toLocaleString('sv-SE').replace('T', ' ')
+
+    // ---- 辅助：同步心跳字段到变量表 ----
+    function syncVar(suffix: string, value: string | number | null | undefined) {
+      if (value === null || value === undefined) return
+      const key = devName + '.' + suffix
+      const v = variables.value.find(v => v.key === key)
+      if (v) { v.value = String(value); v.updated_at = nowStr }
+    }
+
+    // ========== 1. 心跳 — 驱动整个页面 ==========
+    if (event === 'device.heartbeat' && data.name === devName) {
+      // 图表
       const ts = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-      if (data.cpu !== null && data.cpu !== undefined) {
-        cpuHistory.value.push([ts, data.cpu])
-        if (cpuHistory.value.length > 30) cpuHistory.value.shift()
-      }
-      if (data.memory !== null && data.memory !== undefined) {
-        memHistory.value.push([ts, data.memory])
-        if (memHistory.value.length > 30) memHistory.value.shift()
-      }
+      if (data.cpu != null) { cpuHistory.value.push([ts, data.cpu]); if (cpuHistory.value.length > 30) cpuHistory.value.shift() }
+      if (data.memory != null) { memHistory.value.push([ts, data.memory]); if (memHistory.value.length > 30) memHistory.value.shift() }
       updateChart()
-      // 实时更新指标卡
-      if (device.value) {
-        if (data.cpu !== null && data.cpu !== undefined) device.value.cpu = data.cpu
-        if (data.memory !== null && data.memory !== undefined) device.value.memory = data.memory
-        if (data.disk !== null && data.disk !== undefined) device.value.disk = data.disk
-        if (data.volume !== null && data.volume !== undefined) device.value.volume = data.volume
-        if (data.muted !== null && data.muted !== undefined) device.value.muted = data.muted
+
+      // 设备对象 — 指标卡 + 基本信息 + 运行信息
+      if (data.cpu != null) device.value.cpu = data.cpu
+      if (data.memory != null) device.value.memory = data.memory
+      if (data.disk != null) device.value.disk = data.disk
+      if (data.volume != null) device.value.volume = data.volume
+      if (data.muted != null) device.value.muted = data.muted
+      if (data.uptime) device.value.uptime = data.uptime
+      if (data.ip) device.value.ip = data.ip
+      device.value.online = data.online
+      device.value.last_heartbeat = nowStr
+
+      // 变量表 — 同步心跳字段
+      syncVar('运行时长', data.uptime)
+      syncVar('CPU使用率', data.cpu)
+      syncVar('内存使用率', data.memory)
+      syncVar('磁盘使用率', data.disk)
+      syncVar('系统音量', data.volume)
+      syncVar('静音状态', data.muted ? '静音' : '非静音')
+      syncVar('IP地址', data.ip)
+    }
+
+    // ========== 2. KV 变更 — 补刀心跳没覆盖的变量 ==========
+    if (event === 'kv.changed') {
+      const prefix = devName + '.'
+      if (data.key.startsWith(prefix)) {
+        const existing = variables.value.find(v => v.key === data.key)
+        if (existing) {
+          existing.value = data.value
+          existing.updated_at = data.changed_at || nowStr
+        } else {
+          variables.value.unshift({
+            id: 0,
+            key: data.key,
+            value: data.value,
+            type: 'string',
+            source: data.source || 'ws',
+            updated_at: data.changed_at || nowStr,
+            expire_seconds: null,
+            retention_days: 180
+          })
+        }
       }
     }
   })
@@ -394,6 +523,7 @@ function onResize() { hbChart?.resize() }
 window.addEventListener('resize', onResize)
 
 onUnmounted(() => {
+  cleanupWs?.()
   window.removeEventListener('resize', onResize)
   hbChart?.dispose()
 })

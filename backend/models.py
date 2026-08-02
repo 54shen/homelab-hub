@@ -46,6 +46,7 @@ class Device(Base):
     heartbeat_timeout = Column(Integer, default=0)  # 0=使用全局默认，>0=自定义秒数
     volume = Column(Integer, nullable=True)  # 系统音量 0-100，null=未上报
     muted = Column(Boolean, default=False)   # 是否静音
+    sort_order = Column(Integer, default=0)  # 手动排序，越小越靠前
     last_heartbeat = Column(String(32), default=_now)
     registered_at = Column(String(32), default=_now)
 
@@ -129,6 +130,19 @@ class UISetting(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     key = Column(String(128), unique=True, nullable=False, index=True)
     value = Column(Text, default="")
+
+
+# ---- KV 值变更历史表 ----
+class KvHistory(Base):
+    __tablename__ = "kv_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(256), nullable=False, index=True)
+    old_value = Column(Text, nullable=True)       # None = 新建 key
+    new_value = Column(Text, nullable=False)
+    source = Column(String(128), default="")
+    retention_days = Column(Integer, default=180) # 快照：写入时从对应 KvEntry 复制
+    changed_at = Column(String(32), default=_now)
 
 
 # ---- 系统日志表 ----

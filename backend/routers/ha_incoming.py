@@ -12,7 +12,7 @@ from pydantic import BaseModel, validator
 from typing import Optional
 
 from database import get_db
-from models import KvEntry, Device
+from models import KvEntry, KvHistory, Device
 from schemas import ApiResponse
 from websocket_manager import broadcast
 from auth import auth_write
@@ -144,6 +144,12 @@ def _write_kv(db: Session, key: str, value: str, source: str, typ: str):
         entry.type = typ
         entry.source = source
         entry.updated_at = now_str
+        # 记录历史
+        db.add(KvHistory(
+            key=key, old_value=old, new_value=value,
+            source=source, retention_days=entry.retention_days,
+            changed_at=now_str
+        ))
         return now_str, True, old
 
     # ---- 新 key → 创建 entry ----
@@ -156,6 +162,12 @@ def _write_kv(db: Session, key: str, value: str, source: str, typ: str):
         updated_at=now_str
     )
     db.add(entry)
+    # 记录历史（新建 key）
+    db.add(KvHistory(
+        key=key, old_value=None, new_value=value,
+        source=source, retention_days=180,
+        changed_at=now_str
+    ))
     return now_str, True, None
 
 

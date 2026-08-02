@@ -4,13 +4,35 @@
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from database import SessionLocal
-from models import Device
+from models import Device, KvHistory
 from config import DEFAULT_HEARTBEAT_TIMEOUT
 
 
 def cleanup_history():
-    """清理任务（历史记录表已移除，保留调度框架兼容）"""
-    pass
+    """清理过期的历史记录（每条按自己的 retention_days 判断）"""
+    db: Session = SessionLocal()
+    try:
+        # 获取所有不同的 retention_days 值，分组清理
+        retention_values = db.query(KvHistory.retention_days).distinct().all()
+        total = 0
+        now = datetime.now()
+        for (rd,) in retention_values:
+            cutoff = (now - timedelta(days=rd)).strftime("%Y-%m-%d %H:%M:%S")
+            deleted = db.query(KvHistory).filter(
+                KvHistory.retention_days == rd,
+                KvHistory.changed_at < cutoff
+            ).delete()
+            total += deleted
+        if total:
+            db.commit()
+            print(f"[Cleanup] 清理了 {total} 条过期历史记录")
+        else:
+            db.rollback()
+    except Exception as e:
+        print(f"[Cleanup] 清理出错: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 
 def check_device_offline():
