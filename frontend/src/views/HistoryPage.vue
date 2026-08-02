@@ -87,7 +87,9 @@ const pagination = computed(() => {
     itemCount: total.value,
     showSizePicker: true,
     pageSizes: [10, 20, 50],
-    prefix: `共 ${total.value} 条`
+    prefix: () => {
+      return `共 ${total.value} 条`
+    }
   }
   console.log('[历史记录 pagination]', JSON.stringify({ page: p.page, pageSize: p.pageSize, total: p.itemCount, loading: loading.value }))
   return p
