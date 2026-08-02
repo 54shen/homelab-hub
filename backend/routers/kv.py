@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from websocket_manager import broadcast
 from database import get_db
-from models import KvEntry, KvHistory
+from models import KvEntry
 from schemas import (
     KvSetRequest, KvBatchRequest, KvBatchDeleteRequest,
     KvEntryOut, ApiResponse
@@ -16,28 +16,27 @@ import json
 router = APIRouter(prefix="/api", tags=["KV 变量"])
 
 
-def _log_history(db: Session, key: str, old_val: str | None, new_val: str, source: str):
-    from datetime import datetime
-    h = KvHistory(key=key, old_value=old_val, new_value=new_val, source=source,
-                  changed_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    db.add(h)
-
-
 # ---- 内部同步实现（供批量操作复用） ----
 
 def _set_kv_sync(req: KvSetRequest, db: Session):
-    """写入变量（同步，不广播）"""
+    """写入变量（同步，不广播）→ 返回 (now_str, changed, old_value)
+
+    值无变化时完全静默：不写 history、不更新 entry。
+    """
     entry = db.query(KvEntry).filter(KvEntry.key == req.key).first()
     now_str = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if entry:
         old = entry.value
         new_val = str(req.value)
-        if old != new_val:
-            _log_history(db, req.key, old, new_val, req.source)
-            # 值变更时同步检查告警规则（所有写入路径统一触发）
-            from services.alerts import check_kv_change
-            check_kv_change(req.key, old, new_val)
+        # ---- 值没变 → 什么都不做 ----
+        if old == new_val:
+            return now_str, False, old
+
+        # ---- 值变更 → 更新 entry + 触发告警 ----
+        from services.alerts import check_kv_change
+        check_kv_change(req.key, old, new_val)
+
         entry.value = new_val
         entry.type = req.type
         entry.source = req.source
@@ -45,27 +44,26 @@ def _set_kv_sync(req: KvSetRequest, db: Session):
         entry.updated_at = now_str
         if req.expire_seconds is not None:
             entry.expire_seconds = req.expire_seconds
-    else:
-        entry = KvEntry(
-            key=req.key,
-            value=str(req.value),
-            type=req.type,
-            source=req.source,
-            retention_days=req.retention_days,
-            expire_seconds=req.expire_seconds,
-            updated_at=now_str
-        )
-        db.add(entry)
-        _log_history(db, req.key, None, str(req.value), req.source)
+        return now_str, True, old
 
-    return entry
+    # ---- 新 key → 创建 entry ----
+    entry = KvEntry(
+        key=req.key,
+        value=str(req.value),
+        type=req.type,
+        source=req.source,
+        retention_days=req.retention_days,
+        expire_seconds=req.expire_seconds,
+        updated_at=now_str
+    )
+    db.add(entry)
+    return now_str, True, None
 
 
 def _delete_kv_sync(key: str, db: Session):
     """删除变量（同步，不广播）"""
     entry = db.query(KvEntry).filter(KvEntry.key == key).first()
     if entry:
-        _log_history(db, key, entry.value, "(已删除)", "admin")
         db.delete(entry)
 
 
@@ -90,7 +88,7 @@ def get_kv(key: str, db: Session = Depends(get_db)):
 
 @router.post("/kv", response_model=ApiResponse)
 async def set_kv(req: KvSetRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
-    _set_kv_sync(req, db)
+    now_str, changed, old_value = _set_kv_sync(req, db)
     db.commit()
 
     # 心跳超时 KV 同步到 Device 表
@@ -105,7 +103,12 @@ async def set_kv(req: KvSetRequest, db: Session = Depends(get_db), token=Depends
         except (ValueError, Exception):
             pass
 
-    await broadcast("kv.changed", {"key": req.key, "value": str(req.value), "source": req.source})
+    # 只有值真正变化时才广播 WS（静态 key 的重复上报不会触发前端更新）
+    if changed:
+        await broadcast("kv.changed", {"key": req.key, "value": str(req.value), "old_value": old_value, "source": req.source, "changed_at": now_str})
+    # DEBUG: 记录静态 key 的跳过情况
+    if not changed and "大爷的ROG" in req.key:
+        print(f"[DEBUG-KV] 跳过不变 key: {req.key} (value={str(req.value)[:30]})")
     return ApiResponse(success=True, message="OK")
 
 

@@ -11,7 +11,6 @@ import type {
   KvBatchDeleteRequest,
   KvBatchRequest,
   KvEntry,
-  KvHistory,
   KvSetRequest,
   SystemLog,
   WebhookConfig
@@ -83,17 +82,6 @@ export const kvApi = {
   }
 }
 
-// ---- 历史记录 API ----
-
-export const historyApi = {
-  list(params: { key?: string; start?: string; end?: string; page?: number; page_size?: number }) {
-    return http.get<{ items: KvHistory[]; total: number }>('/history', { params })
-  },
-  exportCsv(params: { key?: string; start?: string; end?: string }) {
-    return http.get('/history/export', { params, responseType: 'blob' })
-  }
-}
-
 // ---- 设备 API ----
 
 export const deviceApi = {
@@ -119,7 +107,7 @@ export const dashboardApi = {
     return http.get<DashboardStats>('/dashboard/stats')
   },
   recentChanges(limit = 10) {
-    return http.get<KvHistory[]>('/dashboard/recent', { params: { limit } })
+    return http.get<never[]>('/dashboard/recent', { params: { limit } })
   },
   dbStatus() {
     return http.get<DbStatus>('/dashboard/db-status')

@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Device, KvEntry, KvHistory, SystemLog
-from schemas import DashboardStatsOut, DbStatusOut, KvHistoryOut, TimelineEvent
+from models import Device, KvEntry, SystemLog
+from schemas import DashboardStatsOut, DbStatusOut, TimelineEvent
 import os
 
 router = APIRouter(prefix="/api", tags=["Dashboard"])
@@ -47,10 +47,10 @@ def dashboard_stats(db: Session = Depends(get_db)):
     )
 
 
-@router.get("/dashboard/recent", response_model=list[KvHistoryOut])
+@router.get("/dashboard/recent", response_model=list)
 def recent_changes(limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):
-    rows = db.query(KvHistory).order_by(KvHistory.changed_at.desc()).limit(limit).all()
-    return [KvHistoryOut.from_orm(r) for r in rows]
+    """最近变更（历史记录已移除，返回空列表保持兼容）"""
+    return []
 
 
 @router.get("/dashboard/db-status", response_model=DbStatusOut)
@@ -68,13 +68,12 @@ def db_status(db: Session = Depends(get_db)):
     total_keys = db.query(KvEntry).count()
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
     active_24h = db.query(KvEntry).filter(KvEntry.updated_at >= yesterday).count()
-    history_count = db.query(KvHistory).count()
 
     return DbStatusOut(
         file_size=file_size,
         total_keys=total_keys,
         active_keys_24h=active_24h,
-        history_count=history_count
+        history_count=0
     )
 
 
@@ -93,18 +92,6 @@ def dashboard_timeline(limit: int = Query(20), db: Session = Depends(get_db)):
             color="#22C55E" if d.online else "#EF4444"
         ))
 
-    # 最近变更
-    recent_kv = db.query(KvHistory).order_by(KvHistory.changed_at.desc()).limit(10).all()
-    for h in recent_kv:
-        desc = f"{h.key}: {h.old_value or '(空)'} → {h.new_value}"
-        events.append(TimelineEvent(
-            time=h.changed_at,
-            icon="code-outline",
-            title="变量变更",
-            description=desc,
-            color="#5B8DEF"
-        ))
-
-    # 排序
+    # 排序（仅设备心跳事件）
     events.sort(key=lambda e: e.time, reverse=True)
     return {"events": [e.dict() for e in events[:limit]]}

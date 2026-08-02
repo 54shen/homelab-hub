@@ -4,7 +4,67 @@
 
 > 本项目由 [DeepSeek-v4-Pro](https://deepseek.com) 、[Claude Code](https://claude.ai/code) 还有个超级超级重要的项目主理人联合开发
 
-
+```
+家庭服务中枢/
+├── backend/                    # FastAPI 后端
+│   ├── main.py                 # 入口 + 调度器 + WebSocket
+│   ├── config.py               # 配置
+│   ├── database.py             # SQLAlchemy 引擎 (SQLite)
+│   ├── models.py               # ORM 模型 (6 张表)
+│   ├── schemas.py              # Pydantic 校验
+│   ├── auth.py                 # Bearer Token 认证
+│   ├── websocket_manager.py    # WebSocket 连接管理
+│   ├── routers/                # API 路由 (8 模块)
+│   │   ├── kv.py               #   KV 变量
+│   │   ├── history.py          #   变更历史
+│   │   ├── devices.py          #   设备管理
+│   │   ├── dashboard.py        #   仪表盘统计
+│   │   ├── alerts.py           #   告警规则
+│   │   ├── webhooks.py         #   Webhook
+│   │   ├── logs.py             #   系统日志
+│   │   └── settings.py         #   系统设置
+│   ├── services/               # 后台服务
+│   │   ├── alerts.py           #   告警逻辑
+│   │   ├── cleanup.py          #   历史清理 + 心跳超时
+│   │   └── scheduler.py        #   定时任务
+│   └── data/                   # SQLite 数据库
+│       └── shared_center.db
+├── frontend/                   # Vue 3 + TypeScript 前端
+│   ├── vite.config.ts          # Vite + API 代理
+│   └── src/
+│       ├── main.ts             # 入口 + WebSocket 初始化
+│       ├── App.vue             # 根组件
+│       ├── api/index.ts        # API 封装 (axios)
+│       ├── types/index.ts      # TypeScript 类型
+│       ├── router/index.ts     # 路由 (9 页面)
+│       ├── styles/global.css   # 全局样式 + CSS 变量
+│       ├── composables/        # 组合函数
+│       │   ├── useWebSocket.ts #   WS 连接管理
+│       │   └── useUISetting.ts #   UI 偏好
+│       ├── components/         # 公共组件
+│       │   ├── AppSidebar.vue  #   侧边导航
+│       │   ├── AppTopbar.vue   #   顶栏
+│       │   ├── StatCard.vue    #   统计卡片
+│       │   └── StatusBadge.vue #   状态标签
+│       ├── layouts/
+│       │   └── MainLayout.vue  # 主布局
+│       └── views/              # 页面
+│           ├── Dashboard.vue       # 仪表盘
+│           ├── KvManager.vue       # 变量管理
+│           ├── HistoryViewer.vue   # 历史记录
+│           ├── DeviceManager.vue   # 设备管理
+│           ├── DeviceDetail.vue    # 设备详情
+│           ├── AlertManager.vue    # 告警规则
+│           ├── WebhookManager.vue  # Webhook 管理
+│           ├── SystemLogs.vue      # 系统日志
+│           ├── Settings.vue        # 设置
+│           └── Login.vue           # 登录
+├── agent.py                    # Python Agent (PC 端)
+├── windows-agent.py            # Windows Agent (静音控制等)
+├── sdk/shared.py               # Python SDK
+├── agent_config.jsonc          # Agent 配置
+└── .env                        # 环境变量
+```
 
 ---
 

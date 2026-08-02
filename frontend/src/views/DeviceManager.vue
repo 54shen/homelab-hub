@@ -248,6 +248,8 @@ onMounted(async () => {
         if (data.cpu !== undefined && data.cpu !== null) dev.cpu = data.cpu
         if (data.memory !== undefined && data.memory !== null) dev.memory = data.memory
         if (data.disk !== undefined && data.disk !== null) dev.disk = data.disk
+        if (data.volume !== undefined && data.volume !== null) dev.volume = data.volume
+        if (data.muted !== undefined && data.muted !== null) dev.muted = data.muted
         dev.online = data.online
         dev.last_heartbeat = new Date().toISOString()
       }

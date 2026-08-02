@@ -24,18 +24,6 @@ class KvEntry(Base):
     retention_days = Column(Integer, default=180)
 
 
-# ---- 历史记录表 ----
-class KvHistory(Base):
-    __tablename__ = "kv_history"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    key = Column(String(256), nullable=False, index=True)
-    old_value = Column(Text, nullable=True)
-    new_value = Column(Text, default="")
-    source = Column(String(128), default="")
-    changed_at = Column(String(32), default=_now)
-
-
 # ---- 设备表 ----
 class Device(Base):
     __tablename__ = "devices"

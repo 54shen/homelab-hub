@@ -93,10 +93,9 @@
           <n-descriptions-item label="文件大小">{{ dbStatus.file_size }}</n-descriptions-item>
           <n-descriptions-item label="总变量数">{{ dbStatus.total_keys }}</n-descriptions-item>
           <n-descriptions-item label="24h 活跃">{{ dbStatus.active_keys_24h }}</n-descriptions-item>
-          <n-descriptions-item label="历史记录">{{ dbStatus.history_count }} 条</n-descriptions-item>
+          <n-descriptions-item label="历史记录">已移除</n-descriptions-item>
         </n-descriptions>
         <n-space style="margin-top: 16px">
-          <n-button size="small" @click="handleCleanHistory">手动清理过期数据</n-button>
           <n-button size="small" @click="handleBackup">导出完整备份</n-button>
           <n-upload :show-file-list="false" accept=".json" @change="handleRestore">
             <n-button size="small">恢复备份</n-button>
@@ -386,10 +385,6 @@ async function loadDbStatus() {
     const res = await dashboardApi.dbStatus()
     if (res.data) dbStatus.value = res.data
   } catch { /* */ }
-}
-
-async function handleCleanHistory() {
-  try { await settingsApi.cleanHistory(); await loadDbStatus(); message.success('清理完成') } catch { /* */ }
 }
 
 async function handleBackup() {

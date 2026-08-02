@@ -152,7 +152,7 @@ import {
 } from 'naive-ui'
 import * as echarts from 'echarts'
 import StatusBadge from '../components/StatusBadge.vue'
-import { deviceApi, historyApi, kvApi } from '../api'
+import { deviceApi, kvApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
 import type { Device, KvEntry } from '../types'
 
@@ -177,31 +177,6 @@ function updateChart() {
       { name: '内存', data: memHistory.value.map(v => v[1]) }
     ]
   })
-}
-
-async function loadHistory() {
-  if (!device.value) return
-  const now = new Date().toISOString()
-  const hourAgo = new Date(Date.now() - 3600000).toISOString()
-  try {
-    const [cpuRes, memRes] = await Promise.all([
-      historyApi.list({ key: `${device.value.name}.CPU使用率`, start: hourAgo, end: now, page_size: 30 }),
-      historyApi.list({ key: `${device.value.name}.内存使用率`, start: hourAgo, end: now, page_size: 30 })
-    ])
-    if (cpuRes.data?.items) {
-      cpuHistory.value = cpuRes.data.items
-        .filter(h => h.new_value && !isNaN(Number(h.new_value)))
-        .map(h => [new Date(h.changed_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), Number(h.new_value)] as [string, number])
-        .reverse()
-    }
-    if (memRes.data?.items) {
-      memHistory.value = memRes.data.items
-        .filter(h => h.new_value && !isNaN(Number(h.new_value)))
-        .map(h => [new Date(h.changed_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }), Number(h.new_value)] as [string, number])
-        .reverse()
-    }
-    updateChart()
-  } catch { /* history not critical */ }
 }
 
 const varColumns = [
@@ -365,7 +340,6 @@ async function loadData() {
 
 onMounted(async () => {
   await loadData()
-  await loadHistory()
   await nextTick()
   if (heartbeatChartRef.value) {
     hbChart = echarts.init(heartbeatChartRef.value)

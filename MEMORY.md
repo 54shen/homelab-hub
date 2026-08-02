@@ -1,0 +1,3 @@
+- [WS 实时推送架构](memory/ws-realtime-architecture.md) — 全站 WebSocket 事件驱动，已删除所有轮询
+- [部署配置](memory/deployment.md) — 域名 sc.54shen.cn、Nginx 反代、WS 代理
+- [开发工作流](memory/dev-workflow.md) — 修改后重启前后端 + 打开网页

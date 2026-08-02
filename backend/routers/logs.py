@@ -27,7 +27,7 @@ def list_logs(
 
     total = q.count()
     items = q.order_by(SystemLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
-    return SystemLogListOut(items=[SystemLogOut.from_orm(r) for r in items], total=total)
+    return SystemLogListOut(items=[SystemLogOut.model_validate(r) for r in items], total=total)
 
 
 @router.get("/logs/export")

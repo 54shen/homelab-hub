@@ -1,15 +1,14 @@
 # ============================================================
 # Shared Center — 设置 API
 # ============================================================
-from datetime import datetime, timedelta
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel as PydanticBase
 from sqlalchemy.orm import Session
 from database import get_db
-from models import KvEntry, KvHistory, Device, User, Token as TokenModel, Session as SessionModel, WebhookConfig, AlertRule, SystemLog, UISetting
+from models import KvEntry, Device, User, Token as TokenModel, Session as SessionModel, WebhookConfig, AlertRule, SystemLog, UISetting
 from schemas import SystemConfigUpdate, ApiResponse
 from auth import auth_write
-from config import DEFAULT_RETENTION_DAYS
 import json
 
 router = APIRouter(prefix="/api", tags=["设置"])
@@ -23,22 +22,8 @@ def _model_to_dict(model_class, db: Session):
 
 @router.post("/settings/clean-history", response_model=ApiResponse)
 def clean_history(db: Session = Depends(get_db), token=Depends(auth_write)):
-    """手动清理过期历史数据"""
-    deleted_total = 0
-    entries = db.query(KvEntry).all()
-    now = datetime.now()
-
-    for entry in entries:
-        days = entry.retention_days or DEFAULT_RETENTION_DAYS
-        cutoff = (now - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-        count = db.query(KvHistory).filter(
-            KvHistory.key == entry.key,
-            KvHistory.changed_at < cutoff
-        ).delete()
-        deleted_total += count
-
-    db.commit()
-    return ApiResponse(success=True, message=f"已清理 {deleted_total} 条过期记录")
+    """手动清理过期历史数据（历史记录表已移除，保留兼容）"""
+    return ApiResponse(success=True, message="历史记录功能已移除")
 
 
 @router.get("/settings/backup")
@@ -51,7 +36,6 @@ def export_backup(db: Session = Depends(get_db)):
         "version": "2.0",
         "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "kv": _model_to_dict(KvEntry, db),
-        "kv_history": _model_to_dict(KvHistory, db),
         "devices": _model_to_dict(Device, db),
         "users": [{c.name: str(getattr(r, c.name))
                    for c in User.__table__.columns

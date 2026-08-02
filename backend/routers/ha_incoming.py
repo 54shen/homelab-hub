@@ -12,7 +12,7 @@ from pydantic import BaseModel, validator
 from typing import Optional
 
 from database import get_db
-from models import KvEntry, KvHistory, Device
+from models import KvEntry, Device
 from schemas import ApiResponse
 from websocket_manager import broadcast
 from auth import auth_write
@@ -122,35 +122,41 @@ def _ensure_ha_device(db: Session) -> Device:
 
 
 def _write_kv(db: Session, key: str, value: str, source: str, typ: str):
-    """写入 KV 变量 + 历史记录"""
+    """写入 KV 变量 → 返回 (now_str, changed, old_value)
+
+    值无变化时完全静默：不更新 entry、不触发告警。
+    """
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = db.query(KvEntry).filter(KvEntry.key == key).first()
 
     if entry:
         old = entry.value
-        if old != value:
-            db.add(KvHistory(key=key, old_value=old, new_value=value, source=source))
-            # 值变更时同步检查告警规则
-            from services.alerts import check_kv_change
-            print(f"[HA] 值变更: key={key} {old} -> {value}，触发告警检查")
-            check_kv_change(key, old, value)
+        # ---- 值没变 → 什么都不做 ----
+        if old == value:
+            return now_str, False, old
+
+        # ---- 值变更 → 更新 entry + 触发告警 ----
+        from services.alerts import check_kv_change
+        print(f"[HA] 值变更: key={key} {old} -> {value}，触发告警检查")
+        check_kv_change(key, old, value)
+
         entry.value = value
         entry.type = typ
         entry.source = source
         entry.updated_at = now_str
-    else:
-        entry = KvEntry(
-            key=key,
-            value=value,
-            type=typ,
-            source=source,
-            retention_days=180,
-            updated_at=now_str
-        )
-        db.add(entry)
-        db.add(KvHistory(key=key, old_value=None, new_value=value, source=source))
+        return now_str, True, old
 
-    return entry
+    # ---- 新 key → 创建 entry ----
+    entry = KvEntry(
+        key=key,
+        value=value,
+        type=typ,
+        source=source,
+        retention_days=180,
+        updated_at=now_str
+    )
+    db.add(entry)
+    return now_str, True, None
 
 
 # ---- API 端点 ----
@@ -167,11 +173,12 @@ async def ha_state_report(req: HAStateReport,
     kv_key = f"{HA_DEVICE_NAME}.{var_name}"
     typ = _guess_type(req.state)
 
-    _write_kv(db, kv_key, req.state, req.source, typ)
+    now_str, changed, old_value = _write_kv(db, kv_key, req.state, req.source, typ)
     _ensure_ha_device(db)
     db.commit()
 
-    await broadcast("kv.changed", {"key": kv_key, "value": req.state, "source": req.source})
+    if changed:
+        await broadcast("kv.changed", {"key": kv_key, "value": req.state, "old_value": old_value, "source": req.source, "changed_at": now_str})
 
     unit_str = f" {req.unit}" if req.unit else ""
     return ApiResponse(success=True, message=f"{kv_key} = {req.state}{unit_str}")
@@ -182,19 +189,22 @@ async def ha_batch_states(req: HABatchStateReport,
                           db: Session = Depends(get_db),
                           token=Depends(auth_write)):
     """批量接收 HA 实体状态"""
-    written = 0
+    changed = 0
     for item in req.states:
         var_name = _resolve_name(item.entity_id, item.friendly_name)
         kv_key = f"{HA_DEVICE_NAME}.{var_name}"
         typ = _guess_type(item.state)
-        _write_kv(db, kv_key, item.state, item.source, typ)
-        written += 1
+        _, did_change, _old = _write_kv(db, kv_key, item.state, item.source, typ)
+        if did_change:
+            changed += 1
 
     _ensure_ha_device(db)
     db.commit()
 
-    await broadcast("kv.refresh", {"count": written})
-    return ApiResponse(success=True, message=f"HA 已同步 {written} 个状态")
+    # 只有真正有变更才广播
+    if changed:
+        await broadcast("kv.refresh", {"count": changed})
+    return ApiResponse(success=True, message=f"HA 已同步 {changed} 个变更（{len(req.states)} 个状态）")
 
 
 # ══════════════════════════════════════════════════════════════

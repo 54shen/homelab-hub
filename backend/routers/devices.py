@@ -157,7 +157,7 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
         timeout = device.heartbeat_timeout if device.heartbeat_timeout and device.heartbeat_timeout > 0 else DEFAULT_HEARTBEAT_TIMEOUT
         schedule_offline_check(req.name, timeout)
 
-    await broadcast("device.heartbeat", {"name": req.name, "online": req.online, "cpu": req.cpu, "memory": req.memory, "disk": req.disk})
+    await broadcast("device.heartbeat", {"name": req.name, "online": req.online, "cpu": req.cpu, "memory": req.memory, "disk": req.disk, "volume": req.volume, "muted": req.muted})
     return ApiResponse(success=True, message="OK")
 
 

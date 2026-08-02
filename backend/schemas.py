@@ -35,25 +35,7 @@ class KvEntryOut(BaseModel):
     retention_days: int
 
     class Config:
-        orm_mode = True
-
-
-# ---- History ----
-class KvHistoryOut(BaseModel):
-    id: int
-    key: str
-    old_value: Optional[str]
-    new_value: str
-    source: str
-    changed_at: str
-
-    class Config:
-        orm_mode = True
-
-
-class HistoryListOut(BaseModel):
-    items: list[KvHistoryOut]
-    total: int
+        from_attributes = True
 
 
 # ---- Device ----
@@ -104,7 +86,7 @@ class DeviceOut(BaseModel):
     registered_at: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ---- Dashboard ----
@@ -175,7 +157,7 @@ class AlertRuleOut(BaseModel):
     body: Optional[str]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ---- Webhook ----
@@ -214,7 +196,7 @@ class WebhookOut(BaseModel):
     fail_count: int
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 # ---- System Log ----
@@ -227,7 +209,7 @@ class SystemLogOut(BaseModel):
     created_at: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class SystemLogListOut(BaseModel):

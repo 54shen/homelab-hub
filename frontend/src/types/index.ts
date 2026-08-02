@@ -14,16 +14,6 @@ export interface KvEntry {
   retention_days: number
 }
 
-/** 历史记录 */
-export interface KvHistory {
-  id: number
-  key: string
-  old_value: string | null
-  new_value: string
-  source: string
-  changed_at: string
-}
-
 /** 设备信息 */
 export interface Device {
   id: string
