@@ -84,18 +84,16 @@ const filterEnd = ref<number | null>(null)
 const seenKeys = new Set<string>()
 
 const pagination = computed(() => {
-  const p = {
+  return {
     page: page.value,
     pageSize: pageSize.value,
     itemCount: total.value,
     showSizePicker: true,
     pageSizes: [10, 20, 50],
-    prefix: () => {
-      return `共 ${total.value} 条`
-    }
+    prefix: () => `共 ${total.value} 条`,
+    onUpdatePage: (p: number) => onPageChange(p),
+    onUpdatePageSize: (ps: number) => onPageSizeChange(ps)
   }
-  console.log('[历史记录 pagination]', JSON.stringify({ page: p.page, pageSize: p.pageSize, total: p.itemCount, loading: loading.value }))
-  return p
 })
 
 // ── 格式化音量 -1 → 🔇静音 ──
