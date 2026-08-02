@@ -43,7 +43,10 @@ def list_history(
     )
 
     return KvHistoryListOut(
-        items=[KvHistoryOut.from_orm(r) for r in items],
+        items=[KvHistoryOut(
+            id=r.id, key=r.key, old_value=r.old_value, new_value=r.new_value,
+            source=r.source, retention_days=r.retention_days, changed_at=r.changed_at
+        ) for r in items],
         total=total
     )
 

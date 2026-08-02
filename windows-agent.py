@@ -29,7 +29,7 @@ except ImportError:
 # ══════════════════════════════════════════════════════════════
 # 配置区
 # ══════════════════════════════════════════════════════════════
-BASE_URL     = "http://localhost:8000"
+BASE_URL     = "https://sc.54shen.cn"
 DEVICE_NAME  = "大爷的ROG"
 DEVICE_TYPE  = "computer"
 DEVICE_GROUP = "PC"
