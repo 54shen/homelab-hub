@@ -88,6 +88,13 @@ const pagination = computed(() => ({
   prefix: () => `共 ${total.value} 条`
 }))
 
+// ---- 格式化：系统音量的 -1 显示为 🔇 静音 ----
+function formatVolVal(val: string | null): string {
+  if (val == null) return '(新增)'
+  if (props.keyProp?.endsWith('系统音量') && val === '-1') return '🔇 静音'
+  return val
+}
+
 // ---- 列定义 ----
 const columns = [
   {
@@ -99,12 +106,12 @@ const columns = [
     title: '旧值 → 新值', key: 'change', width: 240,
     render(row: KvHistory) {
       if (!row.old_value) {
-        return h('span', { style: 'color:#10B981;font-size:12px' }, `(新增) → ${row.new_value}`)
+        return h('span', { style: 'color:#10B981;font-size:12px' }, `(新增) → ${formatVolVal(row.new_value)}`)
       }
       return [
-        h('span', { style: 'color:#EF4444;text-decoration:line-through;font-size:12px' }, row.old_value),
+        h('span', { style: 'color:#EF4444;text-decoration:line-through;font-size:12px' }, formatVolVal(row.old_value)),
         h('span', { style: 'color:var(--text-secondary);margin:0 6px' }, '→'),
-        h('span', { style: 'color:#10B981;font-weight:500;font-size:12px' }, row.new_value)
+        h('span', { style: 'color:#10B981;font-weight:500;font-size:12px' }, formatVolVal(row.new_value))
       ]
     }
   },

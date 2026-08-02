@@ -29,8 +29,7 @@ export interface Device {
   cpu?: number
   memory?: number
   disk?: number
-  volume?: number
-  muted?: boolean
+  volume?: number   // 0-100 正常, -1=静音
   uptime?: string
   notes: string
   heartbeat_timeout: number

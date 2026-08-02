@@ -64,7 +64,11 @@
               <div class="sd-props">
                 <div v-for="p in sd.properties" :key="p.key" class="sd-prop">
                   <span class="sd-prop-label">{{ p.label }}</span>
-                  <span class="sd-prop-value" :class="{ 'state-on': p.value === 'on', 'state-off': p.value === 'off' }">
+                  <span
+                    class="sd-prop-value"
+                    :class="{ clickable: true, 'state-on': p.value === 'on', 'state-off': p.value === 'off' }"
+                    @click.stop="openHistory(p.key)"
+                  >
                     {{ p.display }}
                   </span>
                 </div>
@@ -78,21 +82,21 @@
 
         <!-- ======== 普通设备：资源指标 ======== -->
         <div v-if="device.type !== 'ha' && device.online" class="card-grid" style="margin-top:16px">
-          <n-card size="small" title="CPU">
+          <n-card size="small" title="CPU" class="metric-clickable" @click="openHistory(device.name + '.CPU使用率')">
             <div class="metric-big">{{ device.cpu ?? '—' }}<span class="unit">%</span></div>
             <n-progress type="line" :percentage="device.cpu ?? 0" :color="device.cpu && device.cpu > 80 ? '#EF4444' : '#5B8DEF'" :height="6" :border-radius="3" />
           </n-card>
-          <n-card size="small" title="内存">
+          <n-card size="small" title="内存" class="metric-clickable" @click="openHistory(device.name + '.内存使用率')">
             <div class="metric-big">{{ device.memory ?? '—' }}<span class="unit">%</span></div>
             <n-progress type="line" :percentage="device.memory ?? 0" color="#22C55E" :height="6" :border-radius="3" />
           </n-card>
-          <n-card size="small" title="磁盘">
+          <n-card size="small" title="磁盘" class="metric-clickable" @click="openHistory(device.name + '.磁盘使用率')">
             <div class="metric-big">{{ device.disk ?? '—' }}<span class="unit">%</span></div>
             <n-progress type="line" :percentage="device.disk ?? 0" color="#F59E0B" :height="6" :border-radius="3" />
           </n-card>
-          <n-card size="small" title="音量">
-            <div class="metric-big">{{ device.muted ? '🔇 ' : '' }}{{ device.volume ?? '—' }}<span class="unit">%</span></div>
-            <n-progress type="line" :percentage="device.muted ? 0 : (device.volume ?? 0)" :color="device.muted ? '#9CA3AF' : '#A855F7'" :height="6" :border-radius="3" />
+          <n-card size="small" title="音量" class="metric-clickable" @click="openHistory(device.name + '.系统音量')">
+            <div class="metric-big">{{ (device.volume ?? 0) < 0 ? '🔇' : ((device.volume ?? '—') + '%') }}</div>
+            <n-progress type="line" :percentage="(device.volume ?? 0) < 0 ? 0 : (device.volume ?? 0)" :color="(device.volume ?? 0) < 0 ? '#9CA3AF' : '#A855F7'" :height="6" :border-radius="3" />
           </n-card>
           <n-card size="small" title="运行时长">
             <div class="metric-big-text">{{ device.uptime || '—' }}</div>
@@ -171,6 +175,7 @@ const showHistory = ref(false)
 const historyKey = ref('')
 const heartbeatChartRef = ref<HTMLElement | null>(null)
 let hbChart: echarts.ECharts | null = null
+let cleanupWs: (() => void) | null = null
 const cpuHistory = ref<[string, number][]>([])
 const memHistory = ref<[string, number][]>([])
 
@@ -228,7 +233,7 @@ async function deleteVar(key: string) {
 const varColumns = [
   { title: 'Key', key: 'key', width: 180 },
   {
-    title: 'Value', key: 'value', width: 200,
+    title: 'Value', key: 'value', width: 160,
     render(row: KvEntry) {
       if (editingVarKey.value === row.key) {
         return h('input', {
@@ -392,6 +397,11 @@ async function saveTimeout() {
   editingTimeout.value = false
 }
 
+function openHistory(key: string) {
+  historyKey.value = key
+  showHistory.value = true
+}
+
 async function deleteDevice() {
   if (!device.value) return
   try {
@@ -451,7 +461,7 @@ onMounted(async () => {
   }
   // WebSocket 实时更新 — 首次 API 后全部走 WS
   const { on } = useWebSocket()
-  const cleanupWs = on((event, data: any) => {
+  cleanupWs = on((event, data: any) => {
     if (!device.value) return
 
     const devName = device.value.name
@@ -478,7 +488,6 @@ onMounted(async () => {
       if (data.memory != null) device.value.memory = data.memory
       if (data.disk != null) device.value.disk = data.disk
       if (data.volume != null) device.value.volume = data.volume
-      if (data.muted != null) device.value.muted = data.muted
       if (data.uptime) device.value.uptime = data.uptime
       if (data.ip) device.value.ip = data.ip
       device.value.online = data.online
@@ -490,7 +499,6 @@ onMounted(async () => {
       syncVar('内存使用率', data.memory)
       syncVar('磁盘使用率', data.disk)
       syncVar('系统音量', data.volume)
-      syncVar('静音状态', data.muted ? '静音' : '非静音')
       syncVar('IP地址', data.ip)
     }
 
@@ -558,6 +566,7 @@ onUnmounted(() => {
 .hero-name { font-size: 22px; font-weight: 700; color: var(--text-primary); }
 .hero-sub { font-size: 13px; color: var(--text-secondary); font-family: monospace; margin-top: 2px; }
 
+.metric-clickable { cursor: pointer; }
 .metric-big { font-size: 28px; font-weight: 700; color: var(--text-primary); }
 .metric-big .unit { font-size: 16px; font-weight: 400; color: var(--text-secondary); margin-left: 2px; }
 .metric-big-text { font-size: 20px; font-weight: 600; color: var(--text-primary); }
@@ -610,6 +619,15 @@ onUnmounted(() => {
   font-weight: 600;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+}
+.sd-prop-value.clickable {
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.sd-prop-value.clickable:hover {
+  background: var(--border-light);
 }
 .sd-prop-value.state-on {
   color: #22C55E;

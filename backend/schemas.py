@@ -56,8 +56,7 @@ class DeviceHeartbeatRequest(BaseModel):
     cpu: Optional[int] = None
     memory: Optional[int] = None
     disk: Optional[int] = None
-    volume: Optional[int] = None  # 系统音量 0-100
-    muted: bool = False  # 是否静音
+    volume: Optional[int] = None  # 系统音量 0-100, -1=静音
     uptime: str = ""
     ip: str = ""
     source: str = "agent"  # 数据来源标识，Agent 可自定义

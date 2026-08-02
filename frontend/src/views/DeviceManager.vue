@@ -22,6 +22,9 @@
       </n-space>
     </div>
 
+    <!-- 历史记录弹窗 -->
+    <HistoryModal v-model:show="showHistory" :key-prop="historyKey" />
+
     <n-empty v-if="filteredDevices.length === 0" description="暂无设备" style="margin-top:60px" />
 
     <!-- 卡片视图 -->
@@ -62,27 +65,27 @@
 
         <!-- 指标：普通设备 -->
         <div v-if="d.online && d.type !== 'ha'" class="dc-metrics">
-          <div v-if="d.cpu !== undefined && d.cpu !== null" class="dc-metric">
+          <div v-if="d.cpu !== undefined && d.cpu !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.CPU使用率')">
             <span class="dm-label">CPU</span>
             <div class="dm-bar"><div class="dm-fill cpu" :style="{ width: (d.cpu ?? 0) + '%' }"></div></div>
             <span class="dm-val">{{ d.cpu }}%</span>
           </div>
-          <div v-if="d.memory !== undefined && d.memory !== null" class="dc-metric">
+          <div v-if="d.memory !== undefined && d.memory !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.内存使用率')">
             <span class="dm-label">MEM</span>
             <div class="dm-bar"><div class="dm-fill mem" :style="{ width: (d.memory ?? 0) + '%' }"></div></div>
             <span class="dm-val">{{ d.memory }}%</span>
           </div>
-          <div v-if="d.disk !== undefined && d.disk !== null" class="dc-metric">
+          <div v-if="d.disk !== undefined && d.disk !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.磁盘使用率')">
             <span class="dm-label">DSK</span>
             <div class="dm-bar"><div class="dm-fill disk" :style="{ width: (d.disk ?? 0) + '%' }"></div></div>
             <span class="dm-val">{{ d.disk }}%</span>
           </div>
-          <div v-if="d.volume !== undefined && d.volume !== null" class="dc-metric">
+          <div v-if="d.volume !== undefined && d.volume !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.系统音量')">
             <span class="dm-label">VOL</span>
             <div class="dm-bar">
-              <div class="dm-fill vol" :class="{ muted: d.muted }" :style="{ width: d.muted ? '0%' : (d.volume ?? 0) + '%' }"></div>
+              <div class="dm-fill vol" :class="{ muted: (d.volume ?? 0) < 0 }" :style="{ width: (d.volume ?? 0) < 0 ? '0%' : (d.volume ?? 0) + '%' }"></div>
             </div>
-            <span class="dm-val" :class="{ 'muted-text': d.muted }">{{ d.muted ? '🔇' : '' }} {{ d.volume }}%</span>
+            <span class="dm-val" :class="{ 'muted-text': (d.volume ?? 0) < 0 }">{{ (d.volume ?? 0) < 0 ? '🔇' : d.volume + '%' }}</span>
           </div>
         </div>
 
@@ -124,6 +127,7 @@ import {
   NButton, NButtonGroup, NDataTable, NEmpty, NInput, NSelect, NSpace, NTag
 } from 'naive-ui'
 import StatusBadge from '../components/StatusBadge.vue'
+import HistoryModal from '../components/HistoryModal.vue'
 import { useWebSocket } from '../composables/useWebSocket'
 import { deviceApi } from '../api'
 import type { Device } from '../types'
@@ -140,6 +144,13 @@ const devices = ref<Device[]>([])
 const dragId = ref<string | null>(null)  // 拖拽中的设备 id
 const haVarCounts = ref<Record<string, number>>({})
 const haSubDeviceSummary = ref<Record<string, Record<string, string>>>({})
+const showHistory = ref(false)
+const historyKey = ref('')
+
+function openHistory(key: string) {
+  historyKey.value = key
+  showHistory.value = true
+}
 
 // HA 子设备图标映射
 const HA_SUB_ICONS: Record<string, string> = {
@@ -297,7 +308,6 @@ onMounted(async () => {
         if (data.memory !== undefined && data.memory !== null) dev.memory = data.memory
         if (data.disk !== undefined && data.disk !== null) dev.disk = data.disk
         if (data.volume !== undefined && data.volume !== null) dev.volume = data.volume
-        if (data.muted !== undefined && data.muted !== null) dev.muted = data.muted
         dev.online = data.online
         dev.last_heartbeat = new Date().toLocaleString('sv-SE').replace('T', ' ')
       }
@@ -414,6 +424,16 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.dc-metric.metric-clickable {
+  cursor: pointer;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.dc-metric.metric-clickable:hover {
+  background: var(--border-light);
 }
 .dm-label {
   font-size: 10px;

@@ -129,32 +129,32 @@ def _set_mute(target_muted: bool) -> dict:
     return {"ok": True, "muted": target_muted, "changed": True, "message": f"已{label}"}
 
 
-# ── 后台：上报音量 + 静音状态 + 即时心跳 ──
+# ── 后台：上报音量状态 + 即时心跳 ──
 def _report_state(action: str) -> None:
-    """收到控制指令后立即上报音量 + 静音状态到中枢（后台线程，不阻塞响应）"""
+    """收到控制指令后立即上报音量到中枢（后台线程，不阻塞响应）"""
 
     def _run():
         try:
             vol = _get_volume()
             muted = vol.GetMute()
             vol_pct = int(round(vol.GetMasterVolumeLevelScalar() * 100))
+            vol_val = -1 if muted else vol_pct
             pfx = kv_prefix()
 
-            # KV 上报
+            # KV 上报（静音时值为 -1）
             items = [
-                {"key": pfx + "系统音量", "value": str(vol_pct), "type": "int", "source": "command"},
-                {"key": pfx + "静音状态", "value": "静音" if muted else "非静音", "type": "string", "source": "command"},
+                {"key": pfx + "系统音量", "value": str(vol_val), "type": "int", "source": "command"},
             ]
             for item in items:
                 post("/api/kv", item, retry=1, delay=1)
             log.info("已上报状态: 音量=%d%%  静音=%s  (触发: %s)", vol_pct, "是" if muted else "否", action)
 
-            # 立即发送心跳（让前端 WebSocket 即时刷新 muted/volume）
+            # 立即发送心跳（让前端 WebSocket 即时刷新音量/静音）
             info = collect()
             result = post("/api/device/heartbeat", {
                 "name": DEVICE_NAME or HOSTNAME, "online": True,
                 "cpu": info["cpu"], "memory": info["memory"], "disk": info["disk"],
-                "volume": info.get("volume"), "muted": info.get("muted", False),
+                "volume": info.get("volume"),
                 "uptime": info["uptime"], "ip": info["ip"],
                 "source": SOURCE,
             }, retry=1, delay=1)
@@ -276,11 +276,11 @@ def collect() -> dict:
         io = psutil.net_io_counters()
         info["net_sent_mb"] = round(io.bytes_sent / (1024**2), 1)
         info["net_recv_mb"] = round(io.bytes_recv / (1024**2), 1)
-    # 系统音量 + 静音（pycaw）
+    # 系统音量（pycaw）— 静音时值为 -1
     try:
         vol = _get_volume()
-        info["volume"] = int(round(vol.GetMasterVolumeLevelScalar() * 100))
-        info["muted"] = vol.GetMute()
+        vol_pct = int(round(vol.GetMasterVolumeLevelScalar() * 100))
+        info["volume"] = -1 if vol.GetMute() else vol_pct
     except Exception:
         pass
     return info
@@ -348,15 +348,16 @@ def heartbeat() -> bool:
     result = post("/api/device/heartbeat", {
         "name": name, "online": True,
         "cpu": info["cpu"], "memory": info["memory"], "disk": info["disk"],
-        "volume": info.get("volume"), "muted": info.get("muted", False),
+        "volume": info.get("volume"),
         "uptime": info["uptime"], "ip": info["ip"],
         "source": SOURCE,
     }, retry=1, delay=2)
     if result and result.get("success"):
-        log.info("♥ 心跳  CPU:%s%%  MEM:%s%%  DISK:%s%%  VOL:%s%%  %s  IP:%s",
+        vol_val = info.get("volume")
+        vol_str = "🔇" if (vol_val is not None and vol_val < 0) else f"{vol_val}%"
+        log.info("♥ 心跳  CPU:%s%%  MEM:%s%%  DISK:%s%%  VOL:%s  IP:%s",
                  info["cpu"], info["memory"], info["disk"],
-                 info.get("volume", "?"),
-                 "🔇" if info.get("muted") else "🔊",
+                 vol_str,
                  info["ip"])
         return True
     log.warning("心跳失败: %s", result)

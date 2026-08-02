@@ -143,11 +143,10 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
         device.ip = req.ip
     # 保存旧值（在更新前），用于 KV 同步
     old_volume = device.volume
-    old_muted = device.muted
 
     if req.volume is not None:
         device.volume = req.volume
-    device.muted = req.muted
+        device.muted = (req.volume < 0)  # 负数表示静音
     if req.heartbeat_timeout > 0:
         device.heartbeat_timeout = req.heartbeat_timeout
 
@@ -179,8 +178,6 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
 
     if req.volume is not None:
         _sync_kv("系统音量", str(req.volume), str(old_volume) if old_volume is not None else None)
-    _sync_kv("静音状态", "静音" if req.muted else "非静音",
-             "静音" if old_muted else "非静音")
 
     db.commit()
 
@@ -194,7 +191,7 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
     await broadcast("device.heartbeat", {
         "name": req.name, "online": req.online,
         "cpu": req.cpu, "memory": req.memory, "disk": req.disk,
-        "volume": req.volume, "muted": req.muted,
+        "volume": req.volume,
         "uptime": req.uptime, "ip": req.ip
     })
     # 同步心跳字段的 KV 变更广播（驱动变量表 + 历史弹窗实时更新）
