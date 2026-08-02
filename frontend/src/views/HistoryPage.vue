@@ -69,10 +69,15 @@ const { labelOf } = useFieldLabels()
 
 const items = ref<KvHistory[]>([])
 
-// 给每行生成唯一 key，避免 Naive UI 把 KV key 名当作行标识导致 duplicate key
-interface RowItem extends KvHistory { kv_key: string }
+// 给每行生成全局序号 + 唯一 key，避免 Naive UI 把 KV key 名当作行标识导致 duplicate key
+interface RowItem extends KvHistory { kv_key: string; _idx: number }
 const displayItems = computed<RowItem[]>(() =>
-  items.value.map(item => ({ ...item, kv_key: item.key, key: String(item.id) }))
+  items.value.map((item, i) => ({
+    ...item,
+    kv_key: item.key,
+    key: String(item.id),
+    _idx: (page.value - 1) * pageSize.value + i + 1
+  }))
 )
 const total = ref(0)
 const page = ref(1)
@@ -105,6 +110,9 @@ function fmtVol(val: string | null): string {
 
 // ── 列定义 ──
 const columns = [
+  {
+    title: '#', key: '_idx', width: 50
+  },
   {
     title: '时间', key: 'changed_at', width: 160,
     render(row: RowItem) { return row.changed_at || '—' }
