@@ -231,9 +231,10 @@ async function addAllUnmapped() {
 }
 
 // ---- 列定义 ----
+const editInputStyle = 'width:100%;padding:6px 10px;border:1.5px solid #5B8DEF;border-radius:6px;font-size:13px;outline:none;background:var(--bg-card);color:var(--text-primary);box-shadow:0 0 0 2px #5B8DEF18'
 const columns = [
   {
-    title: '字段 Key', key: 'field_key', width: 200,
+    title: '字段 Key', key: 'field_key', width: 200, ellipsis: { tooltip: true },
     render(row: FieldMapping) {
       if (editingId.value === row.id || row.id === 0) {
         return h('input', {
@@ -245,14 +246,14 @@ const columns = [
             if (e.key === 'Enter') editingId.value === -1 ? saveAdd() : saveEdit(row)
             if (e.key === 'Escape') cancelEdit()
           },
-          style: 'width:100%;padding:2px 6px;border:1px solid #5B8DEF;border-radius:4px;font-size:12px;outline:none;background:var(--bg-card)'
+          style: editInputStyle
         })
       }
-      return h('code', { style: 'font-size:12px' }, row.field_key)
+      return row.field_key
     }
   },
   {
-    title: '显示名', key: 'display_name', width: 200,
+    title: '显示名', key: 'display_name', width: 200, ellipsis: { tooltip: true },
     render(row: FieldMapping) {
       if (editingId.value === row.id || row.id === 0) {
         return h('input', {
@@ -263,7 +264,7 @@ const columns = [
             if (e.key === 'Enter') editingId.value === -1 ? saveAdd() : saveEdit(row)
             if (e.key === 'Escape') cancelEdit()
           },
-          style: 'width:100%;padding:2px 6px;border:1px solid #5B8DEF;border-radius:4px;font-size:12px;outline:none;background:var(--bg-card)'
+          style: editInputStyle
         })
       }
       return row.display_name
@@ -304,6 +305,7 @@ onMounted(() => { loadData() })
 </script>
 
 <style scoped>
+/* ── 未映射区域 ── */
 .unmapped-section {
   margin-top: 24px;
   padding: 16px;

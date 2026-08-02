@@ -29,11 +29,17 @@ def _trigger(rule: AlertRule, event_data: dict):
             return
         db = SessionLocal()
         try:
-            if target.startswith("webhook:"):
-                wh_id = int(target.split(":")[1])
-                wh = db.query(WebhookConfig).filter(WebhookConfig.id == wh_id, WebhookConfig.enabled == True).first()
-                if wh:
-                    _send_webhook(wh, rule, event_data, now_str)
+            # 支持逗号分隔多 webhook：webhook:1,webhook:2
+            for t in target.split(","):
+                t = t.strip()
+                if t.startswith("webhook:"):
+                    try:
+                        wh_id = int(t.split(":")[1])
+                        wh = db.query(WebhookConfig).filter(WebhookConfig.id == wh_id, WebhookConfig.enabled == True).first()
+                        if wh:
+                            _send_webhook(wh, rule, event_data, now_str)
+                    except ValueError:
+                        print(f"[Alert] 无效 webhook ID: {t}")
             db.commit()
         except Exception as e:
             print(f"[Alert] Webhook 发送失败: {e}")

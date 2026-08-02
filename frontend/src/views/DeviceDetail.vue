@@ -162,10 +162,12 @@ import StatusBadge from '../components/StatusBadge.vue'
 import HistoryModal from '../components/HistoryModal.vue'
 import { deviceApi, kvApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
+import { useFieldLabels } from '../composables/useFieldLabels'
 import type { Device, KvEntry } from '../types'
 
 const route = useRoute()
 const router = useRouter()
+const { labelOf } = useFieldLabels()
 const deviceId = route.params.id as string
 
 const loading = ref(true)
@@ -231,7 +233,14 @@ async function deleteVar(key: string) {
 }
 
 const varColumns = [
-  { title: 'Key', key: 'key', width: 180 },
+  {
+    title: 'Key', key: 'key', width: 180, ellipsis: { tooltip: true },
+    render(row: KvEntry) {
+      const label = labelOf(row.key)
+      if (label === row.key) return row.key
+      return h('span', { title: row.key }, label)
+    }
+  },
   {
     title: 'Value', key: 'value', width: 160,
     render(row: KvEntry) {

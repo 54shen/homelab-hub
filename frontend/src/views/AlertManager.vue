@@ -29,7 +29,7 @@
           <code v-if="r.threshold" class="ac-threshold">{{ r.threshold }}</code>
           <ion-icon name="arrow-forward-outline" class="ac-arrow"></ion-icon>
           <n-tag v-for="act in r.action.split(',')" :key="act" size="small" :bordered="false" round :type="actionTagType(act)">{{ actionLabel(act) }}</n-tag>
-          <span v-if="r.action_target" class="ac-target">{{ resolveTargetName(r.action, r.action_target) }}</span>
+          <span v-for="name in resolveTargetNames(r.action_target)" :key="name" class="ac-target">{{ name }}</span>
         </div>
 
         <div class="ac-footer">
@@ -116,10 +116,11 @@
         </n-form-item>
         <n-form-item v-if="form.action.includes('webhook')" label="Webhook">
           <n-select
-            v-model:value="form.action_target"
+            v-model:value="selectedWebhooks"
             :options="webhookOptions"
-            placeholder="选择 Webhook"
+            placeholder="选择 Webhook（可多选）"
             filterable
+            multiple
             style="flex:1"
           />
         </n-form-item>
@@ -181,6 +182,7 @@ const allWebhooks = ref<WebhookConfig[]>([])
 const selectedPrefix = ref<string | null>(null)
 const selectedKey = ref<string | null>(null)
 const selectedDevice = ref<string | null>(null)
+const selectedWebhooks = ref<string[]>([])
 
 // 前缀列表（从 KV keys 提取第一段）
 const prefixOptions = computed(() => {
@@ -335,14 +337,16 @@ function displayKey(key: string): string {
   return labelOf(key)
 }
 
-function resolveTargetName(action: string, target: string): string {
-  if (!target) return ''
-  if (target.startsWith('webhook:')) {
-    const id = parseInt(target.split(':')[1])
-    const wh = allWebhooks.value.find(w => w.id === id)
-    return wh ? `→ ${wh.name}` : `→ ⚠ 已删除 (ID:${id})`
-  }
-  return target ? `→ ${target}` : ''
+function resolveTargetNames(target: string): string[] {
+  if (!target) return []
+  return target.split(',').filter(Boolean).map(t => {
+    if (t.startsWith('webhook:')) {
+      const id = parseInt(t.split(':')[1])
+      const wh = allWebhooks.value.find(w => w.id === id)
+      return wh ? `→ ${wh.name}` : `→ ⚠ (ID:${id})`
+    }
+    return `→ ${t}`
+  })
 }
 
 // ---- 标签/图标 ----
@@ -366,6 +370,7 @@ function openCreate() {
   selectedPrefix.value = null
   selectedKey.value = null
   selectedDevice.value = null
+  selectedWebhooks.value = []
   modalVisible.value = true
 }
 function openEdit(r: AlertRule) {
@@ -376,6 +381,7 @@ function openEdit(r: AlertRule) {
     threshold: r.threshold, action: r.action ? r.action.split(',') : [],
     action_target: r.action_target, body: r.body || ''
   }
+  selectedWebhooks.value = (r.action_target || '').split(',').filter(Boolean)
   initSelectors(r)
   modalVisible.value = true
 }
@@ -385,6 +391,7 @@ async function handleSave() {
   if (form.value.condition !== 'offline' && !form.value.trigger_key) return
   if (form.value.condition === 'offline' && !form.value.trigger_key) return
   if (form.value.action.length === 0) return
+  form.value.action_target = selectedWebhooks.value.join(',')
   const payload = { ...form.value, action: form.value.action.join(',') }
   try {
     if (editingId.value) {

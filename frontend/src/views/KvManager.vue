@@ -220,7 +220,7 @@ const columns = [
     render(row: KvEntry) {
       const label = labelOf(row.key)
       if (label === row.key) return row.key  // 无映射，显示原文
-      return h('span', { title: row.key, style: 'cursor:help;border-bottom:1px dotted var(--text-secondary)' }, label)
+      return h('span', { title: row.key }, label)
     }
   },
   { title: 'Value', key: 'value', width: 160, ellipsis: { tooltip: true } },

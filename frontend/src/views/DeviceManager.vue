@@ -33,16 +33,8 @@
         v-for="d in filteredDevices"
         :key="d.id"
         class="device-card"
-        :class="{ 'dragging': dragId === d.id, 'drag-over': dragId && dragId !== d.id }"
-        draggable="true"
-        @click="dragId ? undefined : $router.push('/devices/' + d.id)"
-        @dragstart="onDragStart($event, d)"
-        @dragend="onDragEnd()"
-        @dragover.prevent="onDragOver($event, d)"
-        @drop.prevent="onDrop(d)"
+        @click="$router.push('/devices/' + d.id)"
       >
-        <!-- 拖拽手柄 -->
-        <span class="drag-handle" @click.stop @mousedown.stop>⋮⋮</span>
         <!-- 顶部 -->
         <div class="dc-top">
           <span class="dc-icon">{{ iconForType(d.type) }}</span>
@@ -124,7 +116,7 @@
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import {
-  NButton, NButtonGroup, NDataTable, NEmpty, NInput, NSelect, NSpace, NTag
+  NButton, NButtonGroup, NDataTable, NEmpty, NSelect, NSpace, NTag
 } from 'naive-ui'
 import StatusBadge from '../components/StatusBadge.vue'
 import HistoryModal from '../components/HistoryModal.vue'
@@ -141,7 +133,6 @@ const viewMode = computed<'card' | 'table'>({
 })
 const filterGroup = ref<string | null>(null)
 const devices = ref<Device[]>([])
-const dragId = ref<string | null>(null)  // 拖拽中的设备 id
 const haVarCounts = ref<Record<string, number>>({})
 const haSubDeviceSummary = ref<Record<string, Record<string, string>>>({})
 const showHistory = ref(false)
@@ -210,45 +201,6 @@ function formatRelative(ts: string): string {
   if (sec < 3600) return `${Math.floor(sec / 60)} 分钟前`
   if (sec < 86400) return `${Math.floor(sec / 3600)} 小时前`
   return `${Math.floor(sec / 86400)} 天前`
-}
-
-// ---- 拖拽排序 ----
-function onDragStart(e: DragEvent, d: Device) {
-  dragId.value = d.id
-  e.dataTransfer!.effectAllowed = 'move'
-  e.dataTransfer!.setData('text/plain', d.id)
-}
-
-function onDragEnd() {
-  dragId.value = null
-}
-
-function onDragOver(e: DragEvent, target: Device) {
-  if (!dragId.value || dragId.value === target.id) return
-  // 在过滤后的列表中交换位置
-  const list = filteredDevices.value
-  const fromIdx = list.findIndex(d => d.id === dragId.value)
-  const toIdx = list.findIndex(d => d.id === target.id)
-  if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return
-  // 移动元素
-  const [moved] = list.splice(fromIdx, 1)
-  list.splice(toIdx, 0, moved)
-  // 同步到原始 devices 数组：重新分配 sort_order
-  const orderedIds = new Map(list.map((d, i) => [d.id, i]))
-  for (const dev of devices.value) {
-    const newOrder = orderedIds.get(dev.id)
-    if (newOrder !== undefined) dev.sort_order = newOrder
-  }
-  dragId.value = target.id  // 更新拖拽位置
-}
-
-async function onDrop(_d: Device) {
-  dragId.value = null
-  // 保存排序到后端
-  try {
-    const items = devices.value.map((d, i) => ({ id: d.id, sort_order: i }))
-    await deviceApi.reorder(items)
-  } catch { /* */ }
 }
 
 async function loadData() {
@@ -345,35 +297,6 @@ onUnmounted(() => {
   box-shadow: var(--shadow-card-hover);
   transform: translateY(-2px);
 }
-.device-card.dragging {
-  opacity: 0.5;
-  transform: scale(0.97);
-}
-.device-card.drag-over {
-  border-color: #5B8DEF;
-  box-shadow: 0 0 0 2px #5B8DEF30;
-}
-.drag-handle {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  cursor: grab;
-  font-size: 16px;
-  color: var(--text-secondary);
-  line-height: 1;
-  padding: 2px 4px;
-  border-radius: 4px;
-  user-select: none;
-  z-index: 2;
-}
-.drag-handle:hover {
-  background: var(--border-light);
-  color: var(--text-primary);
-}
-.drag-handle:active {
-  cursor: grabbing;
-}
-
 .dc-top {
   display: flex;
   align-items: flex-start;

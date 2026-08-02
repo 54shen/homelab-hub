@@ -108,7 +108,7 @@ const columns = [
     render(row: KvHistory) {
       const label = labelOf(row.key)
       if (label === row.key) return row.key
-      return h('span', { title: row.key, style: 'cursor:help;border-bottom:1px dotted var(--text-secondary)' }, label)
+      return h('span', { title: row.key }, label)
     }
   },
   {
