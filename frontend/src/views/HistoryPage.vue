@@ -44,7 +44,7 @@
       :loading="loading"
       :bordered="false"
       size="small"
-      row-key="id"
+      :row-key="(row: KvHistory) => row.id"
       :pagination="pagination"
       style="background:var(--bg-card);border-radius:var(--radius-lg)"
       @update:page="page = $event"

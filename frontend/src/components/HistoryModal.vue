@@ -48,7 +48,7 @@
       :loading="loading"
       :bordered="false"
       size="small"
-      row-key="id"
+      :row-key="(row: KvHistory) => row.id"
       :pagination="pagination"
       @update:page="page = $event"
       @update:page-size="pageSize = $event; loadData()"
