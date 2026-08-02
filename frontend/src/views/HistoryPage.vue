@@ -44,6 +44,7 @@
       :loading="loading"
       :bordered="false"
       size="small"
+      row-key="id"
       :pagination="pagination"
       style="background:var(--bg-card);border-radius:var(--radius-lg)"
       @update:page="page = $event"
@@ -184,7 +185,7 @@ onMounted(() => {
       if (seenKeys.has(id)) return
       seenKeys.add(id)
       const newItem: KvHistory = {
-        id: 0,
+        id: -(Date.now() % 1000000),  // 负值确保与 DB 自增 ID 不冲突
         key: data.key,
         old_value: data.old_value ?? null,
         new_value: data.value,

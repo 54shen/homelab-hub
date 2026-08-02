@@ -48,6 +48,7 @@
       :loading="loading"
       :bordered="false"
       size="small"
+      row-key="id"
       :pagination="pagination"
       @update:page="page = $event"
       @update:page-size="pageSize = $event; loadData()"
@@ -209,7 +210,7 @@ watch(() => props.show, (visible) => {
           if (seenKeys.has(id)) return  // 已存在，跳过
           seenKeys.add(id)
           const newItem = {
-            id: 0,
+            id: -(Date.now() % 1000000),
             key: data.key,
             old_value: data.old_value ?? null,
             new_value: data.value,
