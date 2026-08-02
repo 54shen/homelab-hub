@@ -204,7 +204,7 @@ watch(() => props.show, (visible) => {
           const id = `${data.key}|${data.changed_at}`
           if (seenKeys.has(id)) return  // 已存在，跳过
           seenKeys.add(id)
-          items.value.push({
+          const newItem = {
             id: 0,
             key: data.key,
             old_value: data.old_value ?? null,
@@ -212,9 +212,14 @@ watch(() => props.show, (visible) => {
             source: data.source || 'ws',
             retention_days: data.retention_days ?? 180,
             changed_at: data.changed_at || new Date().toLocaleString('sv-SE').replace('T', ' ')
-          })
-          // 按时间倒序排列
-          items.value.sort((a: any, b: any) => b.changed_at.localeCompare(a.changed_at))
+          }
+          // 按时间倒序插入到正确位置
+          const ts = new Date(newItem.changed_at).getTime()
+          let idx = 0
+          for (; idx < items.value.length; idx++) {
+            if (new Date((items.value[idx] as any).changed_at).getTime() < ts) break
+          }
+          items.value.splice(idx, 0, newItem)
           if (items.value.length > pageSize.value) {
             const removed = items.value.pop()!
             seenKeys.delete(`${removed.key}|${removed.changed_at}`)
