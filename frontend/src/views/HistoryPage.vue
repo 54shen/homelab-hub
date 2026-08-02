@@ -40,11 +40,10 @@
 
     <n-data-table
       :columns="columns"
-      :data="items"
+      :data="displayItems"
       :loading="loading"
       :bordered="false"
       size="small"
-      :row-key="rowKey"
       :pagination="pagination"
       style="background:var(--bg-card);border-radius:var(--radius-lg)"
       @update:page="onPageChange"
@@ -68,9 +67,13 @@ import type { KvHistory } from '../types'
 const message = useMessage()
 const { labelOf } = useFieldLabels()
 
-function rowKey(row: KvHistory): number { return row.id }
-
 const items = ref<KvHistory[]>([])
+
+// 给每行生成唯一 key，避免 Naive UI 把 KV key 名当作行标识导致 duplicate key
+interface RowItem extends KvHistory { kv_key: string }
+const displayItems = computed<RowItem[]>(() =>
+  items.value.map(item => ({ ...item, kv_key: item.key, key: String(item.id) }))
+)
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
@@ -106,19 +109,19 @@ function fmtVol(val: string | null): string {
 const columns = [
   {
     title: '时间', key: 'changed_at', width: 160,
-    render(row: KvHistory) { return row.changed_at || '—' }
+    render(row: RowItem) { return row.changed_at || '—' }
   },
   {
-    title: 'Key', key: 'key', width: 200, ellipsis: { tooltip: true },
-    render(row: KvHistory) {
-      const label = labelOf(row.key)
-      if (label === row.key) return row.key
-      return h('span', { title: row.key }, label)
+    title: 'Key', key: 'kv_key', width: 200, ellipsis: { tooltip: true },
+    render(row: RowItem) {
+      const label = labelOf(row.kv_key)
+      if (label === row.kv_key) return row.kv_key
+      return h('span', { title: row.kv_key }, label)
     }
   },
   {
     title: '旧值 → 新值', key: 'change', width: 240,
-    render(row: KvHistory) {
+    render(row: RowItem) {
       if (!row.old_value) {
         return h('span', { style: 'color:#10B981;font-size:12px' }, `(新增) → ${fmtVol(row.new_value)}`)
       }
