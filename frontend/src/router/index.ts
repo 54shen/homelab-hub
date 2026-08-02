@@ -36,6 +36,12 @@ const router = createRouter({
           meta: { title: '字段映射', icon: 'language-outline', group: '数据' }
         },
         {
+          path: 'history',
+          name: 'History',
+          component: () => import('../views/HistoryPage.vue'),
+          meta: { title: '历史记录', icon: 'time-outline', group: '数据' }
+        },
+        {
           path: 'devices',
           name: 'Devices',
           component: () => import('../views/DeviceManager.vue'),
