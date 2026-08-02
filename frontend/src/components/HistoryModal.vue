@@ -48,6 +48,7 @@
       :loading="loading"
       :bordered="false"
       size="small"
+      :row-key="rowKey"
       :pagination="pagination"
       @update:page="page = $event"
       @update:page-size="pageSize = $event; loadData()"
@@ -68,6 +69,8 @@ import type { KvHistory } from '../types'
 const props = defineProps<{ show: boolean; keyProp: string }>()
 defineEmits<{ 'update:show': [value: boolean] }>()
 const { labelOf } = useFieldLabels()
+
+function rowKey(row: KvHistory): number { return row.id }
 
 // ---- 数据 ----
 const items = ref<KvHistory[]>([])

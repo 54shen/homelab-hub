@@ -44,10 +44,11 @@
       :loading="loading"
       :bordered="false"
       size="small"
+      :row-key="rowKey"
       :pagination="pagination"
       style="background:var(--bg-card);border-radius:var(--radius-lg)"
-      @update:page="page = $event"
-      @update:page-size="pageSize = $event; loadData()"
+      @update:page="onPageChange"
+      @update:page-size="onPageSizeChange"
     />
 
     <n-empty v-if="!loading && items.length === 0" description="暂无历史记录" style="margin-top:60px" />
@@ -66,6 +67,8 @@ import type { KvHistory } from '../types'
 
 const message = useMessage()
 const { labelOf } = useFieldLabels()
+
+function rowKey(row: KvHistory): number { return row.id }
 
 const items = ref<KvHistory[]>([])
 const total = ref(0)
@@ -152,9 +155,21 @@ async function loadData() {
 
 function refresh() { page.value = 1; loadData() }
 
+function onPageChange(p: number) {
+  console.log('[历史记录 翻页] page:', p, '→ 当前:', page.value)
+  page.value = p
+  loadData()
+}
+
+function onPageSizeChange(ps: number) {
+  console.log('[历史记录 翻页] pageSize:', ps)
+  pageSize.value = ps
+  page.value = 1
+  loadData()
+}
+
 // ── 筛选变化 → 重载 ──
 watch([searchKey, filterStart, filterEnd], () => { page.value = 1; loadData() })
-watch(page, () => loadData())
 
 // ── 导出 ──
 async function exportCsv() {
