@@ -25,7 +25,8 @@ onBeforeUnmount(() => {
   chart = null
 })
 
-watch(() => props.points, render)
+// deep:WS 实时插入的新点走 splice 原地修改(引用不变),必须监听内容变化
+watch(() => props.points, render, { deep: true })
 
 function onResize() {
   chart && chart.resize()
