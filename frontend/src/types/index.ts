@@ -142,3 +142,41 @@ export interface KvHistory {
   retention_days: number
   changed_at: string
 }
+
+/** 历史记录 — 键统计(带数值型标记,用于筛选下拉) */
+export interface HistoryKeyInfo {
+  key: string
+  count: number
+  is_numeric: boolean
+  latest_value: string | null
+  latest_changed_at: string | null
+  sources: string[]
+}
+
+/** 历史记录 — 来源统计 */
+export interface HistorySource {
+  source: string | null
+  count: number
+}
+
+/** 趋势点 */
+export interface TrendPoint {
+  changed_at: string
+  value: number
+}
+
+/** 趋势序列 */
+export interface TrendSeries {
+  key: string
+  points: TrendPoint[]
+  count: number
+}
+
+/** 历史记录 — 总览统计 */
+export interface HistoryStats {
+  total_records: number
+  max_changed_at: string | null
+  start_24h: string
+  per_source: HistorySource[]
+  per_hour: Array<{ hour: string; count: number }>
+}

@@ -59,7 +59,8 @@ const menuGroups = [
     items: [
       { path: '/variables', label: '变量管理', icon: 'code-outline' },
       { path: '/mappings', label: '字段映射', icon: 'language-outline' },
-      { path: '/history', label: '历史记录', icon: 'time-outline' }
+      { path: '/history', label: '历史记录', icon: 'time-outline' },
+      { path: '/history-live', label: '变更动态', icon: 'pulse-outline' }
     ]
   },
   {

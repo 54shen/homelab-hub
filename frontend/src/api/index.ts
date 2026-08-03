@@ -8,12 +8,16 @@ import type {
   DashboardStats,
   DbStatus,
   Device,
+  HistoryKeyInfo,
+  HistorySource,
+  HistoryStats,
   KvBatchDeleteRequest,
   KvBatchRequest,
   KvEntry,
   KvHistory,
   KvSetRequest,
   SystemLog,
+  TrendSeries,
   WebhookConfig
 } from '../types'
 
@@ -168,11 +172,34 @@ export const webhookApi = {
 
 // ---- 历史记录 API ----
 
+export interface HistoryListParams {
+  key?: string
+  source?: string
+  search?: string
+  start?: string
+  end?: string
+  page?: number
+  page_size?: number
+  order?: 'asc' | 'desc'
+}
+
 export const historyApi = {
-  list(params: { key?: string; search?: string; start?: string; end?: string; page?: number; page_size?: number }) {
+  list(params: HistoryListParams) {
     return http.get<{ items: KvHistory[]; total: number }>('/history', { params })
   },
-  exportCsv(params: { key?: string; search?: string; start?: string; end?: string }) {
+  keys() {
+    return http.get<HistoryKeyInfo[]>('/history/keys')
+  },
+  sources() {
+    return http.get<HistorySource[]>('/history/sources')
+  },
+  trend(params: { key: string; source?: string; start?: string; end?: string; limit?: number }) {
+    return http.get<TrendSeries>('/history/trend', { params })
+  },
+  stats() {
+    return http.get<HistoryStats>('/history/stats')
+  },
+  exportCsv(params: HistoryListParams) {
     return http.get('/history/export', { params, responseType: 'blob' })
   }
 }

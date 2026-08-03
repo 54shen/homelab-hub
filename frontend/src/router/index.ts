@@ -42,6 +42,12 @@ const router = createRouter({
           meta: { title: '历史记录', icon: 'time-outline', group: '数据' }
         },
         {
+          path: 'history-live',
+          name: 'HistoryLive',
+          component: () => import('../views/HistoryLive.vue'),
+          meta: { title: '变更动态', icon: 'pulse-outline', group: '数据' }
+        },
+        {
           path: 'devices',
           name: 'Devices',
           component: () => import('../views/DeviceManager.vue'),
