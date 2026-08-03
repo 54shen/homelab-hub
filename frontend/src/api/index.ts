@@ -99,10 +99,6 @@ export const deviceApi = {
   unregister(id: string) {
     return http.delete<ApiResponse>(`/devices/${id}`)
   },
-  /** 拖拽排序 */
-  reorder(items: { id: string; sort_order: number }[]) {
-    return http.post<ApiResponse>('/devices/reorder', { items })
-  },
   /** 设备变量 */
   variables(id: string) {
     return http.get<KvEntry[]>(`/devices/${id}/variables`)
@@ -174,8 +170,10 @@ export const webhookApi = {
 
 export interface HistoryListParams {
   key?: string
-  source?: string
   search?: string
+  prefix?: string
+  suffix?: string
+  source?: string
   start?: string
   end?: string
   page?: number

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NSelect } from 'naive-ui'
 import type { KvHistory } from '../types'
 import { useFieldLabels } from '../composables/useFieldLabels'
 
@@ -8,6 +9,7 @@ const props = defineProps<{
   page: number
   pageSize: number
   pages: number
+  showPager?: boolean  // 分组视图等场景隐藏分页器
 }>()
 
 // 字段映射:英文 key 后缀 → 中文显示名(无映射时返回原 key)
@@ -20,6 +22,7 @@ function keyLabel(key: string): string {
 const emit = defineEmits<{
   'update:page': [p: number]
   'update:pageSize': [ps: number]
+  'select-key': [key: string]  // 点击 key → 顶部展示趋势图
 }>()
 
 // 页码列表:1 … 当前页前后2个 … N(超过窗口用省略号折叠)
@@ -63,7 +66,9 @@ function goTo(p: number | '…') {
         <tbody>
           <tr v-for="r in items" :key="r.id">
             <td class="nowrap">{{ r.changed_at }}</td>
-            <td class="key nowrap" :title="r.key">{{ keyLabel(r.key) }}</td>
+            <td class="key nowrap" :title="r.key">
+              <span class="key-link" @click="emit('select-key', r.key)">{{ keyLabel(r.key) }}</span>
+            </td>
             <td class="nowrap">{{ r.source }}</td>
             <td>
               <span class="old" :class="{ changed: r.old_value !== r.new_value }">{{ r.old_value ?? '' }}</span>
@@ -78,7 +83,7 @@ function goTo(p: number | '…') {
         </tbody>
       </table>
     </div>
-    <div class="pager">
+    <div v-if="showPager !== false" class="pager">
       <span class="info">共 {{ total }} 条 · 第 {{ page }}/{{ pages }} 页</span>
       <button :disabled="page <= 1" @click="emit('update:page', page - 1)">上一页</button>
       <button
@@ -90,11 +95,17 @@ function goTo(p: number | '…') {
         @click="goTo(p)"
       >{{ p }}</button>
       <button :disabled="page >= pages" @click="emit('update:page', page + 1)">下一页</button>
-      <select :value="pageSize" @change="emit('update:pageSize', Number(($event.target as HTMLSelectElement).value))">
-        <option :value="20">20 条/页</option>
-        <option :value="50">50 条/页</option>
-        <option :value="100">100 条/页</option>
-      </select>
+      <n-select
+        :value="pageSize"
+        size="small"
+        style="width:100px"
+        :options="[
+          { label: '20 条/页', value: 20 },
+          { label: '50 条/页', value: 50 },
+          { label: '100 条/页', value: 100 },
+        ]"
+        @update:value="(v: number) => emit('update:pageSize', v)"
+      />
     </div>
   </div>
 </template>
@@ -130,6 +141,8 @@ th {
 tbody tr:hover { background: var(--bg-sidebar-hover); }
 .nowrap { white-space: nowrap; }
 .key { color: var(--color-info); font-weight: 500; }
+.key-link { cursor: pointer; transition: opacity 0.15s; }
+.key-link:hover { opacity: 0.75; text-decoration: underline; }
 .old.changed { text-decoration: line-through; color: var(--text-secondary); }
 .new.changed { color: var(--color-success); font-weight: 600; }
 .empty { text-align: center; color: var(--text-secondary); padding: 24px 0; }
@@ -158,14 +171,5 @@ tbody tr:hover { background: var(--bg-sidebar-hover); }
   border-color: var(--color-info);
   color: #fff;
   opacity: 1;
-}
-.pager select {
-  background: var(--bg-card);
-  border: 1px solid var(--border-card);
-  border-radius: var(--radius-xs);
-  padding: 4px 8px;
-  font-size: 13px;
-  color: var(--text-primary);
-  outline: none;
 }
 </style>

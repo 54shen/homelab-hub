@@ -6,6 +6,7 @@ import type { TrendPoint } from '../types'
 const props = defineProps<{
   points: TrendPoint[]
   title?: string
+  plotKind?: string  // '' / 'number' / 'duration' / 'timestamp' 决定 y 轴与 tooltip 展示
 }>()
 
 const el = ref<HTMLDivElement | null>(null)
@@ -30,21 +31,63 @@ function onResize() {
   chart && chart.resize()
 }
 
+// 时长(秒)→ 可读文本,如 1d 5h / 3h 25m / 12m
+function formatDuration(sec: number): string {
+  const s = Math.round(sec)
+  if (s >= 86400) {
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600)
+    return h > 0 ? `${d}d ${h}h` : `${d}d`
+  }
+  if (s >= 3600) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60)
+    return m > 0 ? `${h}h ${m}m` : `${h}h`
+  }
+  const m = Math.floor(s / 60), left = s % 60
+  return m > 0 ? `${m}m ${left}s` : `${left}s`
+}
+
+// 时间戳(epoch 秒)→ 'MM-DD HH:MM' / 'HH:MM'
+function formatStamp(sec: number): string {
+  const d = new Date(sec * 1000)
+  const p = (n: number) => String(n).padStart(2, '0')
+  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${hm}`
+}
+
+function yAxisFormatter(v: number): string {
+  if (props.plotKind === 'duration') return formatDuration(v)
+  if (props.plotKind === 'timestamp') return formatStamp(v)
+  return String(v)
+}
+
 function render() {
   if (!chart) return
+  // 数据带原始值,供 tooltip 展示(时长/时间戳等非纯数值格式)
+  const data = props.points.map(p => [p.changed_at.replace(' ', 'T'), p.value, p.raw ?? null])
+  const tooltip = props.plotKind && props.plotKind !== 'number'
+    ? {
+        trigger: 'axis',
+        formatter: (params: any) => {
+          const p = params[0]
+          if (!p?.data) return ''
+          const [t, _v, raw] = p.data
+          return `${String(t).replace('T', ' ')}<br/>${raw ?? _v}`
+        },
+      }
+    : { trigger: 'axis' }
   chart.setOption({
     title: { text: props.title, left: 'center', textStyle: { fontSize: 14, color: '#1A1D26' } },
-    tooltip: { trigger: 'axis' },
-    grid: { left: 55, right: 25, top: 42, bottom: 32 },
+    tooltip,
+    grid: { left: 70, right: 25, top: 42, bottom: 32 },
     xAxis: { type: 'time' },
-    yAxis: { type: 'value', scale: true },
+    yAxis: { type: 'value', scale: true, axisLabel: { formatter: yAxisFormatter } },
     series: [{
       type: 'line',
       showSymbol: false,
       smooth: true,
       lineStyle: { width: 2, color: '#5B8DEF' },
       itemStyle: { color: '#5B8DEF' },
-      data: props.points.map(p => [p.changed_at.replace(' ', 'T'), p.value]),
+      data,
     }],
   })
 }

@@ -24,6 +24,13 @@
       </n-space>
     </div>
 
+    <!-- 统计条 -->
+    <div class="stats-bar">
+      <span>已配置映射 <b>{{ items.length }}</b></span>
+      <span class="unmapped-stat">未映射 Key <b>{{ unmappedKeys.length }}</b></span>
+      <span v-if="search">匹配 <b>{{ filtered.length }}</b> 条</span>
+    </div>
+
     <!-- 搜索 -->
     <n-input
       v-model:value="search"
@@ -31,7 +38,9 @@
       clearable
       size="small"
       style="max-width:360px;margin-bottom:12px"
-    />
+    >
+      <template #prefix><ion-icon name="search-outline" style="vertical-align:-2px" /></template>
+    </n-input>
 
     <n-data-table
       :columns="columns"
@@ -39,13 +48,21 @@
       :bordered="false"
       size="small"
       style="background:var(--bg-card);border-radius:var(--radius-lg)"
-    />
+    >
+      <!-- 空状态统一在表格内部,纯文字无图片 -->
+      <template #empty>
+        <span class="table-empty">{{ emptyText }}</span>
+      </template>
+    </n-data-table>
 
     <!-- 未映射的 key -->
     <div v-if="unmappedKeys.length > 0" class="unmapped-section">
       <div class="unmapped-header">
-        <h3>未映射的 Key（{{ unmappedKeys.length }} 个）</h3>
-        <n-button size="tiny" quaternary @click="addAllUnmapped">一键全部添加</n-button>
+        <h3>未映射的 Key <span class="badge">{{ unmappedKeys.length }}</span></h3>
+        <n-button size="tiny" quaternary @click="addAllUnmapped">
+          <ion-icon name="add-outline" style="margin-right:4px;vertical-align:-2px" />
+          一键全部添加
+        </n-button>
       </div>
       <div class="unmapped-chips">
         <span v-for="k in unmappedKeys" :key="k" class="unmapped-chip" @click="quickAdd(k)">
@@ -53,15 +70,13 @@
         </span>
       </div>
     </div>
-
-    <n-empty v-if="filtered.length === 0 && unmappedKeys.length === 0 && !loading" description="暂无映射 — 点击「导出空白模板」获取 CSV 模板" style="margin-top:40px" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, h, onMounted, ref, nextTick } from 'vue'
 import {
-  NButton, NDataTable, NEmpty, NInput, NPopconfirm, NSpace, NUpload, useMessage
+  NButton, NDataTable, NInput, NPopconfirm, NSpace, NUpload, useMessage
 } from 'naive-ui'
 import { fieldMappingApi, type FieldMapping } from '../api'
 import { useFieldLabels } from '../composables/useFieldLabels'
@@ -96,6 +111,13 @@ const filtered = computed(() => {
   }
   return list
 })
+
+// 空状态提示:确实无映射 / 有数据但搜索无匹配
+const emptyText = computed(() =>
+  items.value.length === 0
+    ? '暂无映射 — 点击「导出空白模板」获取 CSV 模板'
+    : '无匹配映射'
+)
 
 // ---- 新增 ----
 function startAdd() {
@@ -249,7 +271,7 @@ const columns = [
           style: editInputStyle
         })
       }
-      return row.field_key
+      return h('span', { style: 'font-family:monospace' }, row.field_key)
     }
   },
   {
@@ -293,7 +315,7 @@ const columns = [
           positiveText: '确认', negativeText: '取消',
           onPositiveClick: () => deleteMapping(row)
         }, {
-          trigger: () => h(NButton, { size: 'tiny', quaternary: true, style: 'color:#EF4444' }, { default: () => '删除' }),
+          trigger: () => h(NButton, { size: 'tiny', quaternary: true, type: 'error' }, { default: () => '删除' }),
           default: () => `确定要删除映射 "${row.field_key}" 吗？`
         })
       ])
@@ -305,6 +327,29 @@ onMounted(() => { loadData() })
 </script>
 
 <style scoped>
+/* ── 统计条 ── */
+.stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  padding: 10px 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.stats-bar b {
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-left: 2px;
+}
+.stats-bar .unmapped-stat b {
+  color: var(--color-warning);
+}
+
 /* ── 未映射区域 ── */
 .unmapped-section {
   margin-top: 24px;
@@ -312,6 +357,7 @@ onMounted(() => { loadData() })
   background: var(--bg-card);
   border: 1px solid var(--border-card);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
 }
 .unmapped-header {
   display: flex;
@@ -320,10 +366,26 @@ onMounted(() => { loadData() })
   margin-bottom: 12px;
 }
 .unmapped-header h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+}
+.unmapped-header .badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--color-warning);
+  border-radius: var(--radius-full);
 }
 .unmapped-chips {
   display: flex;
@@ -345,5 +407,11 @@ onMounted(() => { loadData() })
 .unmapped-chip:hover {
   background: #5B8DEF20;
   color: #5B8DEF;
+}
+
+/* ── 表格空状态 ── */
+.table-empty {
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 </style>

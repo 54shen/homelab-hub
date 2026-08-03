@@ -3,6 +3,7 @@
 # (融合 kv-history-viewer:keys/sources/trend/stats 分析端点)
 # ============================================================
 import math
+import re
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
@@ -33,12 +34,78 @@ def _to_float(v: str | None):
     return f if math.isfinite(f) else None
 
 
-def _base_query(q, key, search, source, start, end):
+# 时长单位 → 秒
+_DURATION_UNITS = [("d", 86400), ("h", 3600), ("m", 60), ("s", 1)]
+
+
+def _parse_value(v):
+    """将值解析为可绘图的数值。
+
+    支持三种格式,返回 (kind, number) 或 None:
+      - number   纯数值,如 32.5
+      - duration 时长,如 '1d 5h 53m' / '5h 53m' / '30s'(→ 秒)
+      - timestamp 时间戳,如 '2026-08-03T02:58:31'(→ epoch 秒)
+    """
+    if v is None:
+        return None
+    v = str(v).strip()
+
+    # 1) 纯数值
+    try:
+        f = float(v)
+        if math.isfinite(f):
+            return ("number", f)
+    except ValueError:
+        pass
+
+    # 2) 时长:Nd Xh Ym Zs(单位可省略,顺序固定,至少一个单位)
+    m = re.fullmatch(
+        r"\s*(\d+d\s*)?(\d+h\s*)?(\d+m\s*)?(\d+s\s*)?\s*", v
+    )
+    if m and any(g for g in m.groups()):
+        secs = 0
+        for i, unit in enumerate(_DURATION_UNITS):
+            g = m.group(i + 1)
+            if g:
+                secs += int(g.split(unit[0])[0]) * unit[1]
+        return ("duration", float(secs))
+
+    # 3) 时间戳:YYYY-MM-DDTHH:MM:SS 或带空格/毫秒
+    m2 = re.fullmatch(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(\.\d+)?", v)
+    if m2:
+        try:
+            from datetime import datetime
+            ts = datetime.strptime(f"{m2.group(1)} {m2.group(2)}", "%Y-%m-%d %H:%M:%S")
+            return ("timestamp", ts.timestamp())
+        except ValueError:
+            return None
+
+    return None
+
+
+def _chart_kind(vals):
+    """一组取值是否可绘图:全部可解析且格式一致,返回 kind,否则 ''。"""
+    kinds = set()
+    for v in vals:
+        parsed = _parse_value(v)
+        if parsed is None:
+            return ""
+        kinds.add(parsed[0])
+        if len(kinds) > 1:
+            return ""
+    return kinds.pop() if kinds else ""
+
+
+def _base_query(q, key, search, prefix, suffix, source, start, end):
     """拼装公共过滤条件。"""
     if key:
         q = q.filter(KvHistory.key == key)
     elif search:
         q = q.filter(KvHistory.key.contains(search))
+    if prefix:
+        q = q.filter(KvHistory.key.startswith(prefix + "."))
+    if suffix:
+        q = q.filter(KvHistory.key.endswith(suffix))
     if source:
         q = q.filter(KvHistory.source == source)
     if start:
@@ -51,17 +118,19 @@ def _base_query(q, key, search, source, start, end):
 @router.get("/history", response_model=KvHistoryListOut)
 def list_history(
     key: str | None = Query(None, description="精确匹配某个 key"),
-    source: str | None = Query(None, description="精确匹配来源"),
     search: str | None = Query(None, description="模糊搜索 key"),
+    prefix: str | None = Query(None, description="key 前缀(设备),如 大爷的ROG"),
+    suffix: str | None = Query(None, description="key 后缀(指标),如 cpu"),
+    source: str | None = Query(None, description="精确匹配来源"),
     start: str | None = Query(None, description="起始时间 YYYY-MM-DD HH:MM:SS"),
     end: str | None = Query(None, description="结束时间"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=500),
+    page_size: int = Query(50, ge=1, le=50000),
     order: str = Query("desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db)
 ):
     """分页查询历史记录。key 精确匹配时用 ?key=，模糊搜索用 ?search=。"""
-    q = _base_query(db.query(KvHistory), key, search, source, start, end)
+    q = _base_query(db.query(KvHistory), key, search, prefix, suffix, source, start, end)
 
     total = q.count()
     ordering = KvHistory.changed_at.asc() if order == "asc" else KvHistory.changed_at.desc()
@@ -106,10 +175,12 @@ def history_keys(db: Session = Depends(get_db)):
             v[0] for v in db.query(KvHistory.new_value)
             .filter(KvHistory.key == k).distinct().all()
         ]
+        plot_kind = _chart_kind(vals) if vals else ""
         result.append(HistoryKeyInfo(
             key=k,
             count=count,
-            is_numeric=bool(vals) and all(_to_float(v) is not None for v in vals),
+            is_numeric=plot_kind == "number",
+            plot_kind=plot_kind,
             latest_value=latest[0] if latest else None,
             latest_changed_at=latest[1] if latest else None,
             sources=sources,
@@ -139,7 +210,7 @@ def history_trend(
     limit: int = Query(5000, ge=1, le=50000),
     db: Session = Depends(get_db)
 ):
-    """某 key 的数值趋势序列(过滤非数值行，超过 limit 等距抽稀)。"""
+    """某 key 的趋势序列(支持数值/时长/时间戳,过滤不可解析行,超限等距抽稀)。"""
     q = db.query(KvHistory.changed_at, KvHistory.new_value).filter(KvHistory.key == key)
     if source:
         q = q.filter(KvHistory.source == source)
@@ -151,9 +222,13 @@ def history_trend(
 
     points = []
     for changed_at, new_value in rows:
-        f = _to_float(new_value)
-        if f is not None:
-            points.append(TrendPoint(changed_at=changed_at, value=f))
+        parsed = _parse_value(new_value)
+        if parsed is not None:
+            points.append(TrendPoint(
+                changed_at=changed_at,
+                value=parsed[1],
+                raw=str(new_value),
+            ))
     if len(points) > limit:
         step = math.ceil(len(points) / limit)
         points = points[::step]

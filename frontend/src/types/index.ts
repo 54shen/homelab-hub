@@ -33,7 +33,6 @@ export interface Device {
   uptime?: string
   notes: string
   heartbeat_timeout: number
-  sort_order: number
   last_heartbeat: string
   registered_at: string
 }
@@ -70,6 +69,7 @@ export interface DashboardStats {
   online_devices: number
   total_services: number
   running_services: number
+  total_keys: number
   network_status: 'online' | 'offline'
   public_ip: string
   system_health: number
@@ -143,11 +143,12 @@ export interface KvHistory {
   changed_at: string
 }
 
-/** 历史记录 — 键统计(带数值型标记,用于筛选下拉) */
+/** 历史记录 — 键统计(带可绘图标记,用于筛选下拉) */
 export interface HistoryKeyInfo {
   key: string
   count: number
   is_numeric: boolean
+  plot_kind: string  // '' / 'number' / 'duration' / 'timestamp' 可绘图格式
   latest_value: string | null
   latest_changed_at: string | null
   sources: string[]
@@ -163,6 +164,7 @@ export interface HistorySource {
 export interface TrendPoint {
   changed_at: string
   value: number
+  raw?: string | null  // 原始值(时长/时间戳等非纯数值格式)用于展示
 }
 
 /** 趋势序列 */

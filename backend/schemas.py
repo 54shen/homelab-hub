@@ -82,7 +82,6 @@ class DeviceOut(BaseModel):
     uptime: str
     notes: str
     heartbeat_timeout: int
-    sort_order: int = 0
     last_heartbeat: str
     registered_at: str
 
@@ -96,6 +95,7 @@ class DashboardStatsOut(BaseModel):
     online_devices: int
     total_services: int
     running_services: int
+    total_keys: int
     network_status: str
     public_ip: str
     system_health: int
@@ -249,6 +249,7 @@ class HistoryKeyInfo(BaseModel):
     key: str
     count: int
     is_numeric: bool
+    plot_kind: str = ""  # '' / 'number' / 'duration' / 'timestamp' 可绘图格式
     latest_value: Optional[str] = None
     latest_changed_at: Optional[str] = None
     sources: list[str] = []
@@ -262,6 +263,7 @@ class HistorySource(BaseModel):
 class TrendPoint(BaseModel):
     changed_at: str
     value: float
+    raw: Optional[str] = None  # 原始值(时长/时间戳等非纯数值格式)用于展示
 
 
 class TrendSeries(BaseModel):

@@ -16,12 +16,12 @@
         to="/devices"
       />
       <StatCard
-        icon="server-outline"
+        icon="cube-outline"
         icon-bg="rgba(34, 197, 94, 0.1)"
         icon-color="#22C55E"
-        :primary="stats.running_services"
-        :secondary="stats.total_services"
-        label="服务运行中"
+        :primary="stats.total_devices"
+        :secondary="stats.total_keys"
+        label="设备 / 变量"
         to="/variables"
       />
       <StatCard
@@ -123,7 +123,7 @@ import type { DashboardStats, Device } from '../types'
 
 const stats = ref<DashboardStats>({
   total_devices: 0, online_devices: 0, total_services: 0,
-  running_services: 0, network_status: 'offline', public_ip: '--', system_health: 100
+  running_services: 0, total_keys: 0, network_status: 'offline', public_ip: '--', system_health: 100
 })
 const devices = ref<Device[]>([])
 const showHistory = ref(false)

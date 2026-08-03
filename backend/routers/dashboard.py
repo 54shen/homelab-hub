@@ -24,6 +24,9 @@ def dashboard_stats(db: Session = Depends(get_db)):
         KvEntry.value == "running"
     ).count()
 
+    # 变量总数
+    total_keys = db.query(KvEntry).count()
+
     # 网络状态：有已注册设备或有公网IP记录即为正常
     public_ip_entry = db.query(KvEntry).filter(KvEntry.key == "network.public_ip").first()
     public_ip = public_ip_entry.value if public_ip_entry else "—"
@@ -41,6 +44,7 @@ def dashboard_stats(db: Session = Depends(get_db)):
         online_devices=online,
         total_services=total_services,
         running_services=running_services,
+        total_keys=total_keys,
         network_status=network_status,
         public_ip=public_ip,
         system_health=health
