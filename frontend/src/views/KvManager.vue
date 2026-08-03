@@ -219,8 +219,13 @@ const columns = [
     title: 'Key', key: 'key', width: 180, ellipsis: { tooltip: true },
     render(row: KvEntry) {
       const label = labelOf(row.key)
-      if (label === row.key) return row.key  // 无映射，显示原文
-      return h('span', { title: row.key }, label)
+      const text = label === row.key ? row.key : label
+      // 点击 key 直接弹窗查看历史
+      return h('span', {
+        class: 'key-link',
+        title: `${row.key} (点击查看历史)`,
+        onClick: () => { historyKey.value = row.key; showHistory.value = true }
+      }, text)
     }
   },
   { title: 'Value', key: 'value', width: 160, ellipsis: { tooltip: true } },

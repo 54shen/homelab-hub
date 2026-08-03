@@ -253,3 +253,14 @@ html, body, #app {
     font-size: 18px;
   }
 }
+
+/* ---- 可点击的 key(点击查看历史) ---- */
+.key-link {
+  cursor: pointer;
+  color: var(--color-info);
+  transition: opacity 0.15s;
+}
+.key-link:hover {
+  opacity: 0.75;
+  text-decoration: underline;
+}
