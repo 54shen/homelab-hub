@@ -51,6 +51,11 @@
       <span class="local-note">初始加载最近 {{ INITIAL_COUNT }} 条 · 后续 WS 实时续流 · 上限 {{ MAX_ITEMS }} 条</span>
     </div>
 
+    <!-- 每小时变量更新数折线图:最近 24h 分布 + 每分钟刷新当前小时,滚轮缩放/拖动平移 -->
+    <div v-if="chartPoints.length > 0" style="margin-bottom:12px">
+      <TrendChart :points="chartPoints" title="每小时变量更新数(最近24h)" plot-kind="number" />
+    </div>
+
     <n-data-table
       :columns="columns"
       :data="displayItems"
@@ -73,10 +78,74 @@ import {
 } from 'naive-ui'
 import { useFieldLabels } from '../composables/useFieldLabels'
 import { useWebSocket } from '../composables/useWebSocket'
-import { dashboardApi } from '../api'
-import type { KvHistory } from '../types'
+import { dashboardApi, historyApi } from '../api'
+import TrendChart from '../components/TrendChart.vue'
+import type { KvHistory, TrendPoint } from '../types'
 
 const { labelOf } = useFieldLabels()
+
+// ---- 每小时变更数折线图:默认展示最近 24h 逐小时分布 ----
+// 每分钟轮询一次,刷新「当前小时」的累计变更数(实时增长);跨小时后自动补新点
+const chartPoints = ref<TrendPoint[]>([])
+const MAX_CHART_POINTS = 24  // 最近 24 小时窗口,超出丢最旧
+let chartTimer: ReturnType<typeof setInterval> | null = null
+
+function pad2(n: number): string { return String(n).padStart(2, '0') }
+function hourKey(d: Date): string {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}`
+}
+function nowStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+}
+
+// 初始:stats 接口拉近 24h 逐小时计数,补齐为连续 24 个点(空小时补 0)
+async function loadChartInitial() {
+  try {
+    const res = await historyApi.stats()
+    const perHour = res.data?.per_hour ?? []
+    const byHour = new Map(perHour.map(h => [h.hour, h.count]))
+    const points: TrendPoint[] = []
+    // 以当前小时为右端,向前补满 24 个连续小时
+    const base = new Date()
+    for (let i = 23; i >= 0; i--) {
+      const d = new Date(base)
+      d.setHours(base.getHours() - i)
+      const hk = hourKey(d)
+      const count = byHour.get(hk) ?? 0
+      points.push({ changed_at: `${hk}:00`, value: count, raw: `${count} 条` })
+    }
+    chartPoints.value = points
+    console.log('[变更动态图表] 初始加载 24h 小时分布: 24 点 | 首:', points[0].changed_at, '| 末:', points[23].changed_at)
+  } catch (e) {
+    console.error('[变更动态图表] 初始小时数据加载失败:', e)
+  }
+}
+
+// 每分钟轮询:刷新当前小时累计数,跨小时自动补新点
+async function fetchMinuteCount() {
+  const now = new Date()
+  const hk = hourKey(now)
+  try {
+    const res = await historyApi.list({ start: `${hk}:00`, end: nowStr(), page: 1, page_size: 1 })
+    const count = res.data?.total ?? 0
+    const pts = chartPoints.value
+    const last = pts[pts.length - 1]
+    if (last && last.changed_at.startsWith(hk)) {
+      // 同一小时:原地更新最后一点的累计数(deep watch 触发重绘)
+      last.value = count
+      last.raw = `${count} 条`
+      console.log('[变更动态图表] 轮询刷新当前小时:', hk, '→', count, '条')
+    } else {
+      // 跨小时:追加新点,超出 24 个丢最旧
+      pts.push({ changed_at: `${hk}:00`, value: count, raw: `${count} 条` })
+      if (pts.length > MAX_CHART_POINTS) pts.shift()
+      console.log('[变更动态图表] 跨小时追加新点:', hk, '→', count, '条 | 点数:', pts.length)
+    }
+  } catch (e) {
+    console.error('[变更动态图表] 轮询失败:', e)
+  }
+}
 
 // ---- 内存数据(初始 API 20 条,之后 WS 实时续流,时间倒序) ----
 const items = ref<KvHistory[]>([])
@@ -200,6 +269,10 @@ function insertItem(newItem: KvHistory) {
 
 onMounted(() => {
   loadInitial()
+  // 初始拉 24h 小时分布 + 每分钟轮询刷新当前小时累计
+  loadChartInitial()
+  fetchMinuteCount()
+  chartTimer = setInterval(fetchMinuteCount, 60 * 1000)
   cleanupWs = on((event, data: any) => {
     if (event === 'kv.changed') {
       receivedCount.value++
@@ -224,7 +297,11 @@ onMounted(() => {
   })
 })
 
-onUnmounted(() => { cleanupWs?.() })
+onUnmounted(() => {
+  cleanupWs?.()
+  if (chartTimer) clearInterval(chartTimer)
+  chartTimer = null
+})
 
 // ---- 本地操作 ----
 function clearItems() {
