@@ -270,6 +270,7 @@ class TrendSeries(BaseModel):
     key: str
     points: list[TrendPoint]
     count: int
+    kind: str = ""  # '' / 'number' / 'duration' / 'timestamp'
 
 
 class HistoryStats(BaseModel):

@@ -172,6 +172,7 @@ export interface TrendSeries {
   key: string
   points: TrendPoint[]
   count: number
+  kind: string  // '' / 'number' / 'duration' / 'timestamp'
 }
 
 /** 历史记录 — 总览统计 */

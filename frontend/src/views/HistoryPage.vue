@@ -10,7 +10,16 @@ import { historyApi, type HistoryListParams } from '../api'
 import FilterBar, { type HistoryFilters } from '../components/FilterBar.vue'
 import RecordsTable from '../components/RecordsTable.vue'
 import TrendChart from '../components/TrendChart.vue'
+import { useFieldLabels } from '../composables/useFieldLabels'
 import type { HistoryKeyInfo, HistorySource, HistoryStats, KvHistory, TrendPoint } from '../types'
+
+// 字段映射:英文 key → 中文显示名
+const { labelOf } = useFieldLabels()
+function keyLabel(key: string | null): string {
+  if (!key) return ''
+  const label = labelOf(key)
+  return label === key ? key : label
+}
 
 // 自动刷新选项:0 = 关闭
 const REFRESH_OPTIONS = [
@@ -227,13 +236,13 @@ onBeforeUnmount(() => {
         <ion-icon name="arrow-back-outline" style="margin-right:2px;vertical-align:-2px" />
         返回
       </n-button>
-      <span class="key-bar-label">{{ filters.key }}</span>
+      <span class="key-bar-label" :title="filters.key">{{ keyLabel(filters.key) }}</span>
     </div>
 
     <div v-if="showChart" class="chart-wrap">
       <TrendChart
         :points="points"
-        :title="`${filters.key} 趋势`"
+        :title="`${keyLabel(filters.key)} 趋势`"
         :plot-kind="selectedKey?.plot_kind || ''"
       />
     </div>

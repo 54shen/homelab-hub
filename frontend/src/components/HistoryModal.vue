@@ -2,7 +2,7 @@
   <n-modal
     :show="show"
     preset="card"
-    :title="`📋 ${keyProp} 的历史`"
+    :title="`📋 ${titleLabel} 的历史`"
     size="huge"
     style="max-width:900px"
     @update:show="$emit('update:show', $event)"
@@ -41,6 +41,11 @@
       </div>
     </div>
 
+    <!-- 趋势图:可绘图格式(数值/时长/时间戳)时显示,WS 新数据实时更新 -->
+    <div v-if="chartable" class="hm-chart">
+      <TrendChart :points="trendPoints" :title="`${titleLabel} 趋势`" :plot-kind="plotKind" />
+    </div>
+
     <!-- 表格 -->
     <n-data-table
       :columns="columns"
@@ -64,11 +69,18 @@ import { NButton, NDataTable, NDatePicker, NEmpty, NModal, NSpace } from 'naive-
 import { historyApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
 import { useFieldLabels } from '../composables/useFieldLabels'
-import type { KvHistory } from '../types'
+import TrendChart from './TrendChart.vue'
+import type { KvHistory, TrendPoint } from '../types'
 
 const props = defineProps<{ show: boolean; keyProp: string }>()
 defineEmits<{ 'update:show': [value: boolean] }>()
 const { labelOf } = useFieldLabels()
+
+// 字段映射后的标题(悬停显示原始 key)
+const titleLabel = computed(() => {
+  const label = labelOf(props.keyProp)
+  return label === props.keyProp ? props.keyProp : label
+})
 
 function rowKey(row: KvHistory): number { return row.id }
 
@@ -83,6 +95,58 @@ const filterEnd = ref<number | null>(null)
 const newCount = ref(0)
 const seenKeys = new Set<string>()  // 追踪已显示的 key+changed_at，防止重复
 const hasFilter = computed(() => !!(filterStart.value || filterEnd.value))
+
+// ---- 趋势图 ----
+const trendPoints = ref<TrendPoint[]>([])
+const plotKind = ref('')
+const chartable = computed(() => Boolean(plotKind.value) && trendPoints.value.length > 0)
+
+// 解析值为可绘图数值(与后端 _parse_value 规则一致:数值/时长/时间戳)
+function parsePlotValue(v: unknown): { kind: string; value: number } | null {
+  if (v == null) return null
+  const s = String(v).trim()
+  if (s === '') return null
+  // 纯数值(严格匹配,避免 '17h' 被 Number 误判)
+  if (/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s)) return { kind: 'number', value: Number(s) }
+  // 时长:Nd Xh Ym Zs
+  const dm = s.match(/^(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s\s*)?$/)
+  if (dm && (dm[1] || dm[2] || dm[3] || dm[4])) {
+    const secs = (parseInt(dm[1] || '0', 10) * 86400)
+      + (parseInt(dm[2] || '0', 10) * 3600)
+      + (parseInt(dm[3] || '0', 10) * 60)
+      + parseInt(dm[4] || '0', 10)
+    return { kind: 'duration', value: secs }
+  }
+  // 时间戳
+  const tm = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?$/)
+  if (tm) {
+    const ts = new Date(`${tm[1]}T${tm[2]}`).getTime() / 1000
+    if (Number.isFinite(ts)) return { kind: 'timestamp', value: ts }
+  }
+  return null
+}
+
+async function loadTrend() {
+  trendPoints.value = []
+  plotKind.value = ''
+  try {
+    const params: { key: string; limit: number; start?: string; end?: string } = { key: props.keyProp, limit: 5000 }
+    // 未特意筛选时间时,默认只取最近 24 小时(避免全量传输)
+    if (filterStart.value) {
+      params.start = new Date(filterStart.value).toLocaleString('sv-SE').replace('T', ' ')
+    } else {
+      const d = new Date(Date.now() - 24 * 3600 * 1000)
+      const p = (n: number) => String(n).padStart(2, '0')
+      params.start = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+    }
+    if (filterEnd.value) params.end = new Date(filterEnd.value).toLocaleString('sv-SE').replace('T', ' ')
+    const res = await historyApi.trend(params)
+    if (res.data) {
+      trendPoints.value = res.data.points
+      plotKind.value = res.data.kind || ''
+    }
+  } catch { /* 无趋势数据 */ }
+}
 
 const pagination = computed(() => ({
   page: page.value,
@@ -168,6 +232,7 @@ function refresh() {
   newCount.value = 0
   page.value = 1
   loadData()
+  loadTrend()
 }
 
 // ---- 导出 ----
@@ -202,6 +267,7 @@ watch(() => props.show, (visible) => {
     filterEnd.value = null
     newCount.value = 0
     loadData()
+    loadTrend()
     // 注册 WS 监听
     cleanupWs = on((event, data: any) => {
       if (event === 'kv.changed' && data.key === props.keyProp) {
@@ -238,6 +304,23 @@ watch(() => props.show, (visible) => {
           }
           // total 不递增 — 保持服务端权威计数
         }
+        // 趋势图实时更新:解析新值为数值点插入(时间升序,按 changed_at 去重)
+        const parsed = parsePlotValue(data.value)
+        if (parsed && parsed.kind === plotKind.value) {
+          const pts = trendPoints.value
+          const ts = new Date(data.changed_at).getTime()
+          if (!pts.some(p => new Date(p.changed_at).getTime() === ts)) {
+            let i = 0
+            for (; i < pts.length; i++) {
+              if (new Date(pts[i].changed_at).getTime() > ts) break
+            }
+            pts.splice(i, 0, {
+              changed_at: data.changed_at,
+              value: parsed.value,
+              raw: String(data.value),
+            })
+          }
+        }
       }
     })
   } else {
@@ -266,6 +349,7 @@ onUnmounted(() => {
   color: var(--text-secondary);
   white-space: nowrap;
 }
+.hm-chart { margin-bottom: 12px; }
 .hm-badge {
   font-size: 12px;
   background: #FFF3E0;

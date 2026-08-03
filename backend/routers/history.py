@@ -221,9 +221,12 @@ def history_trend(
     rows = q.order_by(KvHistory.changed_at.asc(), KvHistory.id.asc()).all()
 
     points = []
+    kind = ""
     for changed_at, new_value in rows:
         parsed = _parse_value(new_value)
         if parsed is not None:
+            if not kind:
+                kind = parsed[0]
             points.append(TrendPoint(
                 changed_at=changed_at,
                 value=parsed[1],
@@ -232,7 +235,7 @@ def history_trend(
     if len(points) > limit:
         step = math.ceil(len(points) / limit)
         points = points[::step]
-    return TrendSeries(key=key, points=points, count=len(points))
+    return TrendSeries(key=key, points=points, count=len(points), kind=kind)
 
 
 @router.get("/history/stats", response_model=HistoryStats)
