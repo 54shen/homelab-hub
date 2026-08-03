@@ -55,10 +55,7 @@
       :data="displayItems"
       :bordered="false"
       size="small"
-      :pagination="pagination"
       style="background:var(--bg-card);border-radius:var(--radius-lg)"
-      @update:page="onPageChange"
-      @update:page-size="onPageSizeChange"
     />
 
     <n-empty v-if="!items.length" description="等待实时数据…(页面打开后, KV 变更会实时出现在这里)" style="margin-top:60px" />
@@ -67,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import {
   NButton, NDataTable, NDatePicker, NEmpty, NInput, NSpace
 } from 'naive-ui'
@@ -83,8 +80,8 @@ const receivedCount = ref(0)   // 累计接收条数
 const MAX_ITEMS = 1000         // 内存上限,超出丢弃最旧
 const seenKeys = new Set<string>()
 
-// 给每行生成全局序号 + 唯一 key，避免 Naive UI 把 KV key 名当作行标识导致 duplicate key
-interface RowItem extends KvHistory { kv_key: string; _idx: number }
+// 给每行生成唯一 key，避免 Naive UI 把 KV key 名当作行标识导致 duplicate key
+interface RowItem extends KvHistory { kv_key: string }
 
 // ---- 前端本地筛选 ----
 const searchKey = ref('')
@@ -107,33 +104,14 @@ const filteredItems = computed<KvHistory[]>(() => {
   return list
 })
 
-// ---- 前端本地分页 ----
-const page = ref(1)
-const pageSize = ref(20)
-
-const displayItems = computed<RowItem[]>(() => {
-  const filtered = filteredItems.value
-  const start = (page.value - 1) * pageSize.value
-  return filtered.slice(start, start + pageSize.value).map((item, i) => ({
+// ---- 无分页:WS 数据持续追加,表格无限长 ----
+const displayItems = computed<RowItem[]>(() =>
+  filteredItems.value.map(item => ({
     ...item,
     kv_key: item.key,
-    key: String(item.id),
-    _idx: start + i + 1
+    key: String(item.id)
   }))
-})
-
-const pagination = computed(() => {
-  return {
-    page: page.value,
-    pageSize: pageSize.value,
-    itemCount: filteredItems.value.length,
-    showSizePicker: true,
-    pageSizes: [10, 20, 50],
-    prefix: () => `共 ${filteredItems.value.length} 条`,
-    onUpdatePage: (p: number) => onPageChange(p),
-    onUpdatePageSize: (ps: number) => onPageSizeChange(ps)
-  }
-})
+)
 
 // ---- 格式化音量 -1 → 🔇静音 ----
 function fmtVol(val: string | null): string {
@@ -236,11 +214,7 @@ function exportCsv() {
   URL.revokeObjectURL(url)
 }
 
-function onPageChange(p: number) { page.value = p }
-function onPageSizeChange(ps: number) { pageSize.value = ps; page.value = 1 }
-
-// 筛选变化 → 回到第一页
-watch([searchKey, filterStart, filterEnd], () => { page.value = 1 })
+// 筛选为纯前端过滤(computed 自动生效),无需翻页逻辑
 </script>
 
 <style scoped>
