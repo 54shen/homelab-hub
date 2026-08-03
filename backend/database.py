@@ -97,12 +97,6 @@ def _migrate():
             conn.commit()
         except Exception:
             pass
-        # devices.sort_order (v2.8) — 手动拖拽排序
-        try:
-            conn.execute(sqlalchemy.text("ALTER TABLE devices ADD COLUMN sort_order INTEGER DEFAULT 0"))
-            conn.commit()
-        except Exception:
-            pass
         # field_mappings (v2.9) — 字段英文→中文映射表
         try:
             conn.execute(sqlalchemy.text("""

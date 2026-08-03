@@ -42,7 +42,7 @@ def _sync_timeout_kv(db: Session, key: str, timeout: int):
 
 @router.get("/devices", response_model=list[DeviceOut])
 def list_devices(db: Session = Depends(get_db)):
-    return db.query(Device).order_by(Device.sort_order.asc(), Device.online.desc(), Device.last_heartbeat.desc()).all()
+    return db.query(Device).order_by(Device.online.desc(), Device.last_heartbeat.desc()).all()
 
 
 @router.get("/devices/{device_id}", response_model=DeviceOut)
@@ -212,20 +212,3 @@ async def unregister_device(device_id: str, db: Session = Depends(get_db), token
     return ApiResponse(success=True, message="OK")
 
 
-# ---- 设备排序 ----
-from pydantic import BaseModel as PydanticBase
-
-class ReorderItem(PydanticBase):
-    id: str
-    sort_order: int
-
-class ReorderRequest(PydanticBase):
-    items: list[ReorderItem]
-
-@router.post("/devices/reorder", response_model=ApiResponse)
-def reorder_devices(req: ReorderRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
-    """拖拽排序后批量更新 sort_order"""
-    for item in req.items:
-        db.query(Device).filter(Device.id == item.id).update({"sort_order": item.sort_order})
-    db.commit()
-    return ApiResponse(success=True, message="已更新排序")

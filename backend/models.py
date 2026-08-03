@@ -46,7 +46,6 @@ class Device(Base):
     heartbeat_timeout = Column(Integer, default=0)  # 0=使用全局默认，>0=自定义秒数
     volume = Column(Integer, nullable=True)  # 系统音量 0-100，null=未上报
     muted = Column(Boolean, default=False)   # 是否静音
-    sort_order = Column(Integer, default=0)  # 手动排序，越小越靠前
     last_heartbeat = Column(String(32), default=_now)
     registered_at = Column(String(32), default=_now)
 
