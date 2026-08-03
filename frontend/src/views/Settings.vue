@@ -153,7 +153,8 @@
 import { h, onMounted, ref } from 'vue'
 import {
   NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem, NEmpty,
-  NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSpace, NUpload, useMessage
+  NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSpace, NUpload,
+  useMessage, type UploadFileInfo
 } from 'naive-ui'
 import { dashboardApi, settingsApi } from '../api'
 import http from '../api'
@@ -398,7 +399,7 @@ async function handleBackup() {
   } catch { /* */ }
 }
 
-async function handleRestore({ file }: { file: File }) {
+async function handleRestore({ file }: { file: UploadFileInfo }) {
   try {
     const res = await settingsApi.restoreBackup(file.file!)
     if (res.data?.success) {

@@ -221,8 +221,6 @@ function removeChip(chipIdx: number) {
   let url = form.value.url
   let ci = -1
   const re = /\{\{([^}]+)\}\}/g
-  let last = 0
-  const parts: { start: number; end: number }[] = []
   for (const m of url.matchAll(re)) {
     ci++
     if (ci === chipIdx) {
@@ -377,43 +375,6 @@ async function loadData() {
     const res = await webhookApi.list()
     if (res.data) webhooks.value = res.data
   } catch { webhooks.value = [] }
-}
-
-// ---- Body 预设示例 ----
-const BODY_EXAMPLES: Record<string, string> = {
-  feishu: JSON.stringify({
-    msg_type: "interactive",
-    card: {
-      header: { title: { tag: "plain_text", content: "Shared Center 通知" } },
-      elements: [
-        { tag: "div", text: { tag: "lark_md", content: "**事件：**{{event}}\n**时间：**{{timestamp}}\n**详情：**{{data}}" } }
-      ]
-    }
-  }, null, 2),
-  wecom: JSON.stringify({
-    msgtype: "markdown",
-    markdown: { content: `## Shared Center 通知\n> 事件：<font color="info">{{event}}</font>\n> 时间：{{timestamp}}\n> 详情：{{data}}` }
-  }, null, 2),
-  dingtalk: JSON.stringify({
-    msgtype: "markdown",
-    markdown: { title: "Shared Center", text: `### 通知\n- 事件：{{event}}\n- 时间：{{timestamp}}\n- 详情：{{data}}` }
-  }, null, 2),
-  bark: JSON.stringify({
-    title: "Shared Center",
-    body: "事件：{{event}}\n时间：{{timestamp}}\n详情：{{data}}",
-    group: "SharedCenter",
-    sound: "bell"
-  }, null, 2),
-  pushdeer: JSON.stringify({
-    text: "Shared Center",
-    desp: `### 通知\n\n**事件：**{{event}}\n\n**时间：**{{timestamp}}\n\n**详情：**\n\`\`\`json\n{{data}}\n\`\`\``,
-    type: "markdown"
-  }, null, 2),
-  clear: ""
-}
-
-function setBodyExample(key: string) {
-  bodyText.value = BODY_EXAMPLES[key] || ''
 }
 
 // ---- WebSocket 实时更新 ----
