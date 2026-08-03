@@ -216,17 +216,14 @@ onBeforeUnmount(() => {
           style="width:100px"
         />
       </label>
+      <!-- 分组切换:页面最右侧 -->
+      <n-button size="small" quaternary @click="toggleGroup">
+        <ion-icon name="layers-outline" style="margin-right:4px;vertical-align:-2px" />
+        分组
+      </n-button>
     </header>
 
-    <FilterBar :keys="keys" :sources="sources" :filters="filters" @update:filters="filters = $event">
-      <!-- 分组切换(与变量管理一致) -->
-      <template #extra>
-        <n-button size="small" quaternary @click="toggleGroup">
-          <ion-icon name="layers-outline" style="margin-right:4px;vertical-align:-2px" />
-          分组
-        </n-button>
-      </template>
-    </FilterBar>
+    <FilterBar :keys="keys" :sources="sources" :filters="filters" @update:filters="filters = $event" />
 
     <p v-if="error" class="error">⚠ {{ error }}</p>
 
