@@ -63,29 +63,47 @@ function yAxisFormatter(v: number): string {
 
 function render() {
   if (!chart) return
-  // 数据带原始值,供 tooltip 展示(时长/时间戳等非纯数值格式)
-  const data = props.points.map(p => [p.changed_at.replace(' ', 'T'), p.value, p.raw ?? null])
-  const tooltip = props.plotKind && props.plotKind !== 'number'
-    ? {
-        trigger: 'axis',
-        formatter: (params: any) => {
-          const p = params[0]
-          if (!p?.data) return ''
-          const [t, _v, raw] = p.data
-          return `${String(t).replace('T', ' ')}<br/>${raw ?? _v}`
-        },
+  // 阶梯数据:每个变更点展开为「保持段终点(t, 旧值) + 跳变点(t, 新值)」。
+  // 水平段严格水平(表示值一直未变),只有真正变化的瞬间由小曲率平滑过渡。
+  // 数据带原始值,供 tooltip 展示(时长/时间戳等非纯数值格式)。
+  const data: Array<[string, number, string | null]> = []
+  if (props.points.length === 1) {
+    const p = props.points[0]
+    const t = p.changed_at.replace(' ', 'T')
+    data.push([t, p.value, p.raw ?? null])
+  } else {
+    for (let i = 0; i < props.points.length; i++) {
+      const p = props.points[i]
+      const t = p.changed_at.replace(' ', 'T')
+      if (i > 0) {
+        const prev = props.points[i - 1]
+        data.push([t, prev.value, prev.raw ?? null])  // 旧值保持到本变更时刻
       }
-    : { trigger: 'axis' }
+      data.push([t, p.value, p.raw ?? null])          // 变更瞬间的新值
+    }
+  }
+  // 同一时刻存在新旧两点时,tooltip 取最后一项(变更后的新值,客观)
+  const tooltip = {
+    trigger: 'axis',
+    formatter: (params: any) => {
+      const last = params[params.length - 1]
+      if (!last?.data) return ''
+      const [t, _v, raw] = last.data
+      return `${String(t).replace('T', ' ')}<br/>${raw ?? _v}`
+    },
+  }
   chart.setOption({
     title: { text: props.title, left: 'center', textStyle: { fontSize: 14, color: '#1A1D26' } },
     tooltip,
     grid: { left: 70, right: 25, top: 42, bottom: 32 },
     xAxis: { type: 'time' },
     yAxis: { type: 'value', scale: true, axisLabel: { formatter: yAxisFormatter } },
+    // 时间轴缩放/平移:滚轮与双指缩放,拖拽平移,时间轴上滚动同样生效
+    dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
     series: [{
       type: 'line',
       showSymbol: false,
-      smooth: true,
+      smooth: 0.15,  // 小曲率:只在变化瞬间圆滑,保持段不弯曲
       lineStyle: { width: 2, color: '#5B8DEF' },
       itemStyle: { color: '#5B8DEF' },
       data,
