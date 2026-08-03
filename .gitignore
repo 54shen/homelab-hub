@@ -33,4 +33,4 @@ agent_config.jsonc
 # 系统
 .DS_Store
 Thumbs.db
-backend.log
+*.log
