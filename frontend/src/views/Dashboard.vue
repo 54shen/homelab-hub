@@ -106,20 +106,40 @@
     </div>
     <n-empty v-else description="暂无设备" style="margin-top:20px" />
 
+    <!-- 变更动态:WS 实时,最多 20 条,旧数据直接抛弃 -->
+    <h2 style="margin:24px 0 12px;font-size:16px;font-weight:600;color:var(--text-primary)">
+      变更动态
+      <span style="font-size:12px;font-weight:400;color:var(--text-secondary);margin-left:8px">
+        <span class="live-dot"></span> 实时 · {{ liveChanges.length }}/{{ MAX_LIVE }}
+      </span>
+    </h2>
+    <n-data-table
+      :columns="liveColumns"
+      :data="liveChanges"
+      :bordered="false"
+      size="small"
+      style="background:var(--bg-card);border-radius:var(--radius-lg);box-shadow:var(--shadow-card)"
+    >
+      <template #empty>
+        <span style="color:var(--text-secondary);font-size:13px">等待实时数据…(KV 变更会实时出现在这里)</span>
+      </template>
+    </n-data-table>
+
     <!-- 历史记录弹窗 -->
     <HistoryModal v-model:show="showHistory" :key-prop="historyKey" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
-import { NEmpty, NTag } from 'naive-ui'
+import { h, onMounted, onUnmounted, ref } from 'vue'
+import { NDataTable, NEmpty, NTag } from 'naive-ui'
 import StatCard from '../components/StatCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import HistoryModal from '../components/HistoryModal.vue'
 import { dashboardApi, deviceApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
-import type { DashboardStats, Device } from '../types'
+import { useFieldLabels } from '../composables/useFieldLabels'
+import type { DashboardStats, Device, KvHistory } from '../types'
 
 const stats = ref<DashboardStats>({
   total_devices: 0, online_devices: 0, total_services: 0,
@@ -130,6 +150,67 @@ const showHistory = ref(false)
 const historyKey = ref('')
 const haVarCounts = ref<Record<string, number>>({})
 const haSubDeviceSummary = ref<Record<string, Record<string, string>>>({})
+
+// ---- 变更动态:实时展示最近 KV 变更,最多 20 条,超出丢弃最旧 ----
+const { labelOf } = useFieldLabels()
+function keyLabel(key: string): string {
+  const label = labelOf(key)
+  return label === key ? key : label
+}
+const MAX_LIVE = 20
+const liveChanges = ref<Array<KvHistory & { uid: string }>>([])
+const liveSeen = new Set<string>()
+
+function pushLive(data: any) {
+  const uid = `${data.key}|${data.changed_at}`
+  if (liveSeen.has(uid)) return
+  liveSeen.add(uid)
+  liveChanges.value.unshift({
+    uid,
+    id: Date.now(),
+    key: data.key,
+    old_value: data.old_value ?? null,
+    new_value: data.value,
+    source: data.source || '',
+    retention_days: data.retention_days ?? 180,
+    changed_at: data.changed_at || new Date().toLocaleString('sv-SE').replace('T', ' '),
+  })
+  // 旧数据直接抛弃,保持最多 20 条
+  while (liveChanges.value.length > MAX_LIVE) {
+    const removed = liveChanges.value.pop()!
+    liveSeen.delete(removed.uid)
+  }
+}
+
+const liveColumns = [
+  {
+    title: '时间', key: 'changed_at', width: 150,
+    render(row: KvHistory) { return row.changed_at }
+  },
+  {
+    title: '键', key: 'key', width: 200, ellipsis: { tooltip: true },
+    render(row: KvHistory) {
+      return h('span', { title: row.key }, keyLabel(row.key))
+    }
+  },
+  {
+    title: '来源', key: 'source', width: 110,
+    render(row: KvHistory) { return row.source || '—' }
+  },
+  {
+    title: '变更', key: 'change', minWidth: 220,
+    render(row: KvHistory) {
+      if (!row.old_value) {
+        return h('span', { style: 'color:#22C55E;font-size:12px' }, `(新增) → ${row.new_value}`)
+      }
+      return [
+        h('span', { style: 'color:var(--text-secondary);text-decoration:line-through;font-size:12px' }, row.old_value),
+        h('span', { style: 'color:var(--text-secondary);margin:0 6px' }, '→'),
+        h('span', { style: 'color:#22C55E;font-weight:500;font-size:12px' }, row.new_value),
+      ]
+    }
+  },
+]
 
 const HA_SUB_ICONS: Record<string, string> = {
   开关: '🔘', 状态: '📋', 功率: '⚡', 温度: '🌡️', 湿度: '💧',
@@ -162,11 +243,18 @@ function formatRelative(ts: string): string {
 
 async function loadData() {
   try {
-    const [sRes, dRes] = await Promise.all([
+    const [sRes, dRes, rRes] = await Promise.all([
       dashboardApi.stats(),
-      deviceApi.list()
+      deviceApi.list(),
+      dashboardApi.recentChanges(MAX_LIVE)
     ])
     if (sRes.data) stats.value = sRes.data
+    // 初始填充最近变更(旧数据直接抛弃,最多 MAX_LIVE 条)
+    if (rRes.data) {
+      liveChanges.value = rRes.data.map(r => ({ ...r, uid: `${r.key}|${r.changed_at}` }))
+      liveSeen.clear()
+      liveChanges.value.forEach(r => liveSeen.add(r.uid))
+    }
     if (dRes.data) {
       devices.value = dRes.data
       // 加载 HA 设备的变量统计
@@ -228,6 +316,9 @@ onMounted(async () => {
     }
     if (event === 'heartbeat' || event === 'kv.changed') {
       dashboardApi.stats().then(r => { if (r.data) stats.value = r.data }).catch(() => {})
+    }
+    if (event === 'kv.changed') {
+      pushLive(data)  // 实时插入变更动态
     }
   })
 })
@@ -338,4 +429,20 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .ha-count { font-size: 12px; color: var(--text-secondary); }
+
+/* ── 变更动态 ── */
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+  margin-right: 4px;
+  vertical-align: 1px;
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
 </style>

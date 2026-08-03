@@ -112,7 +112,7 @@ export const dashboardApi = {
     return http.get<DashboardStats>('/dashboard/stats')
   },
   recentChanges(limit = 10) {
-    return http.get<never[]>('/dashboard/recent', { params: { limit } })
+    return http.get<KvHistory[]>('/dashboard/recent', { params: { limit } })
   },
   dbStatus() {
     return http.get<DbStatus>('/dashboard/db-status')
