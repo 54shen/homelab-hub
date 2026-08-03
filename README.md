@@ -160,13 +160,15 @@ systemctl status homelab-backend        # 确认 running
 
 ```bash
 # 快速更新:只改后端时(一行搞定)
-cd ~/homelab-hub && git pull && systemctl restart homelab-backend homelab-frontend
+cd ~/homelab-hub && git pull && systemctl restart homelab-backend
 
 # 完整更新:前后端都改 + 依赖有变化时
 cd ~/homelab-hub && git pull
 cd frontend && npm install
 systemctl restart homelab-backend homelab-frontend
 
+# 完整更新（快速）
+cd ~/homelab-hub && git pull && systemctl restart homelab-backend
 # 看日志
 journalctl -u homelab-backend -f
 journalctl -u homelab-frontend -f
