@@ -244,6 +244,40 @@ class KvHistoryListOut(BaseModel):
     total: int
 
 
+# ---- 历史记录统计/分析（融合 kv-history-viewer） ----
+class HistoryKeyInfo(BaseModel):
+    key: str
+    count: int
+    is_numeric: bool
+    latest_value: Optional[str] = None
+    latest_changed_at: Optional[str] = None
+    sources: list[str] = []
+
+
+class HistorySource(BaseModel):
+    source: Optional[str] = None
+    count: int
+
+
+class TrendPoint(BaseModel):
+    changed_at: str
+    value: float
+
+
+class TrendSeries(BaseModel):
+    key: str
+    points: list[TrendPoint]
+    count: int
+
+
+class HistoryStats(BaseModel):
+    total_records: int
+    max_changed_at: Optional[str] = None
+    start_24h: str
+    per_source: list[HistorySource]
+    per_hour: list[dict]
+
+
 # ---- Field Mapping ----
 class FieldMappingCreate(BaseModel):
     field_key: str
