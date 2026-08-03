@@ -159,16 +159,12 @@ systemctl status homelab-backend        # 确认 running
 ### 5. 更新与运维
 
 ```bash
-# 快速更新:只改后端时(一行搞定)
-cd ~/homelab-hub && git pull && systemctl restart homelab-backend
+# 一键全部更新:拉代码 + 装依赖 + 重启(推荐)
+cd ~/homelab-hub && git pull && cd backend && venv/bin/pip install -r requirements.txt && cd ../frontend && npm install && cd .. && systemctl restart homelab-backend homelab-frontend
 
-# 完整更新:前后端都改 + 依赖有变化时
-cd ~/homelab-hub && git pull
-cd frontend && npm install
-systemctl restart homelab-backend homelab-frontend
+# 快速更新:只改后端代码时
+cd ~/homelab-hub && git pull && systemctl restart homelab-backend homelab-frontend
 
-# 完整更新（快速）
-cd ~/homelab-hub && git pull && systemctl restart homelab-backend
 # 看日志
 journalctl -u homelab-backend -f
 journalctl -u homelab-frontend -f
