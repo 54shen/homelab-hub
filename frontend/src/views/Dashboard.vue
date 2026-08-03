@@ -163,7 +163,11 @@ const liveSeen = new Set<string>()
 
 function pushLive(data: any) {
   const uid = `${data.key}|${data.changed_at}`
-  if (liveSeen.has(uid)) return
+  console.log('[变更动态] WS kv.changed 收到:', { key: data.key, value: data.value, old_value: data.old_value, source: data.source, changed_at: data.changed_at })
+  if (liveSeen.has(uid)) {
+    console.log('[变更动态] 重复跳过:', uid)
+    return
+  }
   liveSeen.add(uid)
   liveChanges.value.unshift({
     uid,
@@ -178,8 +182,10 @@ function pushLive(data: any) {
   // 旧数据直接抛弃,保持最多 20 条
   while (liveChanges.value.length > MAX_LIVE) {
     const removed = liveChanges.value.pop()!
+    console.log('[变更动态] 淘汰最旧:', removed.changed_at, removed.key)
     liveSeen.delete(removed.uid)
   }
+  console.log('[变更动态] 插入后:', liveChanges.value.length, '条 | 最新(第1行):', liveChanges.value[0]?.changed_at, '| 最旧(最后1行):', liveChanges.value[liveChanges.value.length - 1]?.changed_at)
 }
 
 const liveColumns = [
@@ -254,6 +260,9 @@ async function loadData() {
       liveChanges.value = rRes.data.map(r => ({ ...r, uid: `${r.key}|${r.changed_at}` }))
       liveSeen.clear()
       liveChanges.value.forEach(r => liveSeen.add(r.uid))
+      const times = liveChanges.value.map(r => r.changed_at)
+      const sorted = [...times].sort().reverse()
+      console.log('[变更动态] 初始加载:', liveChanges.value.length, '条 | 首行:', times[0], '| 末行:', times[times.length - 1], '| 时间逆序正确:', JSON.stringify(times) === JSON.stringify(sorted))
     }
     if (dRes.data) {
       devices.value = dRes.data
