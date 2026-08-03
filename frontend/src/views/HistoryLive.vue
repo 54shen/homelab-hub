@@ -1,7 +1,8 @@
 <!-- ============================================================
      Shared Center — 变更动态(实时模式)
-     不通过 API 请求任何数据 —— 全部由 WebSocket kv.changed 实时推送
-     搜索 / 时间筛选 / 分页 / CSV 导出均为前端本地实现
+     初始通过 API 加载最近 20 条,之后全部由 WebSocket kv.changed
+     实时推送续流;内存上限 1000 条,超出丢弃最旧
+     搜索 / 时间筛选 / CSV 导出均为前端本地实现
      ============================================================ -->
 <template>
   <div class="page-container">
@@ -9,7 +10,7 @@
       <h1 class="page-title">变更动态</h1>
       <n-space>
         <span class="ws-status">
-          <span class="dot"></span>实时监听中 · 已接收 {{ receivedCount }} 条
+          <span class="dot"></span>实时监听中 · 已接收 {{ receivedCount }} 条 · 当前 {{ items.length }} 条
         </span>
         <n-button size="small" quaternary @click="clearItems">
           <ion-icon name="trash-outline" style="margin-right:4px;vertical-align:-2px" />
@@ -47,7 +48,7 @@
         size="small"
         style="width:170px"
       />
-      <span class="local-note">本地实时数据 · 无 API 请求</span>
+      <span class="local-note">初始加载最近 {{ INITIAL_COUNT }} 条 · 后续 WS 实时续流 · 上限 {{ MAX_ITEMS }} 条</span>
     </div>
 
     <n-data-table
@@ -72,15 +73,34 @@ import {
 } from 'naive-ui'
 import { useFieldLabels } from '../composables/useFieldLabels'
 import { useWebSocket } from '../composables/useWebSocket'
+import { dashboardApi } from '../api'
 import type { KvHistory } from '../types'
 
 const { labelOf } = useFieldLabels()
 
-// ---- 内存数据(全部来自 WS,时间倒序) ----
+// ---- 内存数据(初始 API 20 条,之后 WS 实时续流,时间倒序) ----
 const items = ref<KvHistory[]>([])
-const receivedCount = ref(0)   // 累计接收条数
+const receivedCount = ref(0)   // WS 累计接收条数
 const MAX_ITEMS = 1000         // 内存上限,超出丢弃最旧
+const INITIAL_COUNT = 20       // 初始 API 拉取条数
 const seenKeys = new Set<string>()
+
+// ---- 初始加载最近 20 条(API),之后的变更全部走 WS ----
+async function loadInitial() {
+  try {
+    const res = await dashboardApi.recentChanges(INITIAL_COUNT)
+    if (!res.data || res.data.length === 0) return
+    const rows: KvHistory[] = res.data.map(r => ({ ...r, retention_days: r.retention_days ?? 180 }))
+    // 预填去重表:WS 到达的同一变更直接跳过
+    rows.forEach(r => seenKeys.add(`${r.key}|${r.changed_at}`))
+    items.value = rows
+    const times = rows.map(r => r.changed_at)
+    const sorted = [...times].sort().reverse()
+    console.log('[变更动态] 初始 API 加载:', rows.length, '条 | 首行(最新):', times[0], '| 末行(最旧):', times[times.length - 1], '| 时间逆序正确:', JSON.stringify(times) === JSON.stringify(sorted))
+  } catch (e) {
+    console.error('[变更动态] 初始 API 加载失败(降级为纯 WS):', e)
+  }
+}
 
 // 给每行生成唯一 key，避免 Naive UI 把 KV key 名当作行标识导致 duplicate key
 interface RowItem extends KvHistory { kv_key: string }
@@ -173,16 +193,22 @@ function insertItem(newItem: KvHistory) {
   // 内存上限:超出丢弃最旧
   if (items.value.length > MAX_ITEMS) {
     const removed = items.value.pop()!
+    console.log('[变更动态] 超上限淘汰最旧:', removed.changed_at, removed.key)
     seenKeys.delete(`${removed.key}|${removed.changed_at}`)
   }
 }
 
 onMounted(() => {
+  loadInitial()
   cleanupWs = on((event, data: any) => {
     if (event === 'kv.changed') {
       receivedCount.value++
+      console.log('[变更动态] WS kv.changed 收到:', { key: data.key, value: data.value, old_value: data.old_value, source: data.source, changed_at: data.changed_at })
       const id = `${data.key}|${data.changed_at}`
-      if (seenKeys.has(id)) return
+      if (seenKeys.has(id)) {
+        console.log('[变更动态] 与已有数据重复跳过:', id)
+        return
+      }
       seenKeys.add(id)
       insertItem({
         id: -(Date.now() % 1000000),  // 负值确保与 DB 自增 ID 不冲突
@@ -193,6 +219,7 @@ onMounted(() => {
         retention_days: data.retention_days ?? 180,
         changed_at: data.changed_at || new Date().toLocaleString('sv-SE').replace('T', ' ')
       })
+      console.log('[变更动态] 插入后:', items.value.length, '条 | 最新(第1行):', items.value[0]?.changed_at, '| 最旧(最后1行):', items.value[items.value.length - 1]?.changed_at)
     }
   })
 })
