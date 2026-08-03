@@ -58,6 +58,8 @@ class User(Base):
     username = Column(String(64), unique=True, nullable=False)
     password_hash = Column(String(256), nullable=False)
     permission = Column(String(32), default="read")
+    totp_secret = Column(String(64), default="")   # TOTP 二次验证密钥(Base32)
+    totp_enabled = Column(Integer, default=0)      # 0=未启用 1=已启用
     created_at = Column(String(32), default=_now)
 
 

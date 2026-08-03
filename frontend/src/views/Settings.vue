@@ -15,6 +15,47 @@
       </n-form>
     </n-card>
 
+    <!-- 二次验证(TOTP) -->
+    <n-card title="二次验证" size="small" style="margin-bottom:16px">
+      <div v-if="!twofaEnabled" class="twofa-row">
+        <div class="twofa-desc">
+          <p>使用手机验证器 App(Google Authenticator / Microsoft Authenticator 等)扫码绑定后,登录除密码外还需输入 6 位动态验证码。</p>
+          <n-button size="small" type="primary" :loading="twofaLoading" @click="startTwofaSetup">启用</n-button>
+        </div>
+        <div v-if="twofaSetupUri" class="twofa-setup">
+          <img :src="twofaQr" alt="2FA 二维码" style="width:170px;height:170px;border:1px solid var(--border-card);border-radius:8px" />
+          <div class="twofa-secret">
+            <span style="font-size:12px;color:var(--text-secondary)">密钥(备选手动输入):</span>
+            <code>{{ twofaSecret }}</code>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <n-input
+              v-model:value="twofaConfirmCode"
+              placeholder="输入 App 的 6 位验证码"
+              maxlength="6"
+              size="small"
+              style="width:200px"
+            />
+            <n-button size="small" type="primary" :loading="twofaLoading" @click="confirmTwofa">确认启用</n-button>
+          </div>
+        </div>
+      </div>
+      <div v-else class="twofa-row">
+        <span style="color:var(--color-success);font-size:13px">✅ 已启用 —— 登录时需要输入手机 App 的动态验证码</span>
+        <n-button size="small" type="error" ghost @click="twofaDisableMode = !twofaDisableMode">关闭</n-button>
+        <div v-if="twofaDisableMode" style="display:flex;gap:8px;align-items:center;margin-top:8px">
+          <n-input
+            v-model:value="twofaConfirmCode"
+            placeholder="输入验证码确认关闭"
+            maxlength="6"
+            size="small"
+            style="width:200px"
+          />
+          <n-button size="small" type="error" :loading="twofaLoading" @click="disableTwofa">确认关闭</n-button>
+        </div>
+      </div>
+    </n-card>
+
     <!-- Token 管理 -->
     <n-card title="Token 管理" size="small" style="margin-bottom:16px">
       <template #header-extra>
@@ -156,11 +197,83 @@ import {
   NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSpace, NUpload,
   useMessage, type UploadFileInfo
 } from 'naive-ui'
-import { dashboardApi, settingsApi } from '../api'
+import { authApi, dashboardApi, settingsApi } from '../api'
 import http from '../api'
+import QRCode from 'qrcode'
 import type { DbStatus } from '../types'
 
 const message = useMessage()
+
+// ---- 二次验证(TOTP) ----
+const twofaEnabled = ref(false)
+const twofaLoading = ref(false)
+const twofaSetupUri = ref('')
+const twofaSecret = ref('')
+const twofaQr = ref('')
+const twofaConfirmCode = ref('')
+const twofaDisableMode = ref(false)
+
+async function loadTwofaStatus() {
+  try {
+    const res = await authApi.twofaStatus()
+    twofaEnabled.value = !!res.data?.enabled
+  } catch { /* 未登录等场景忽略 */ }
+}
+
+async function startTwofaSetup() {
+  twofaLoading.value = true
+  try {
+    const res = await authApi.twofaSetup()
+    twofaSetupUri.value = res.data?.uri ?? ''
+    twofaSecret.value = res.data?.secret ?? ''
+    twofaQr.value = await QRCode.toDataURL(res.data?.uri ?? '')
+    twofaConfirmCode.value = ''
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '生成失败')
+  } finally {
+    twofaLoading.value = false
+  }
+}
+
+async function confirmTwofa() {
+  if (twofaConfirmCode.value.length !== 6) {
+    message.warning('请输入 6 位验证码')
+    return
+  }
+  twofaLoading.value = true
+  try {
+    await authApi.twofaConfirm(twofaConfirmCode.value)
+    message.success('二次验证已启用')
+    twofaEnabled.value = true
+    twofaSetupUri.value = ''
+    twofaSecret.value = ''
+    twofaQr.value = ''
+    twofaConfirmCode.value = ''
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '确认失败')
+  } finally {
+    twofaLoading.value = false
+  }
+}
+
+async function disableTwofa() {
+  if (twofaConfirmCode.value.length !== 6) {
+    message.warning('请输入 6 位验证码')
+    return
+  }
+  twofaLoading.value = true
+  try {
+    await authApi.twofaDisable(twofaConfirmCode.value)
+    message.success('二次验证已关闭')
+    twofaEnabled.value = false
+    twofaDisableMode.value = false
+    twofaConfirmCode.value = ''
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '关闭失败')
+  } finally {
+    twofaLoading.value = false
+  }
+}
 
 // ---- 用户管理 ----
 interface UserEntry { id: number; username: string; permission: string; created_at: string }
@@ -413,9 +526,33 @@ async function handleRestore({ file }: { file: UploadFileInfo }) {
   } catch { message.error('恢复失败，请检查文件格式') }
 }
 
-onMounted(() => { loadUsers(); loadTokens(); loadSessions(); loadDbStatus() })
+onMounted(() => { loadUsers(); loadTokens(); loadSessions(); loadDbStatus(); loadTwofaStatus() })
 </script>
 
 <style scoped>
 .settings-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--gap-md); }
+
+/* 二次验证 */
+.twofa-row { display: flex; flex-direction: column; gap: 12px; }
+.twofa-desc p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+  max-width: 560px;
+  line-height: 1.6;
+}
+.twofa-setup { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.twofa-secret {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.twofa-secret code {
+  font-size: 13px;
+  background: var(--border-light);
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: var(--text-primary);
+  user-select: all;
+}
 </style>

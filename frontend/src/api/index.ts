@@ -275,4 +275,20 @@ export const fieldMappingApi = {
   }
 }
 
+// ---- 二次验证(TOTP) ----
+export const authApi = {
+  twofaStatus() {
+    return http.get<{ username: string; enabled: boolean }>('/auth/2fa/status')
+  },
+  twofaSetup() {
+    return http.post<{ secret: string; uri: string }>('/auth/2fa/setup')
+  },
+  twofaConfirm(code: string) {
+    return http.post<ApiResponse>('/auth/2fa/confirm', { code })
+  },
+  twofaDisable(code: string) {
+    return http.post<ApiResponse>('/auth/2fa/disable', { code })
+  }
+}
+
 export default http

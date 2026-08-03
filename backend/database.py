@@ -75,6 +75,17 @@ def _migrate():
             conn.commit()
         except Exception:
             pass
+        # users.totp_secret / totp_enabled (v2.10) — 登录二次验证(TOTP)
+        try:
+            conn.execute(sqlalchemy.text("ALTER TABLE users ADD COLUMN totp_secret TEXT DEFAULT ''"))
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(sqlalchemy.text("ALTER TABLE users ADD COLUMN totp_enabled INTEGER DEFAULT 0"))
+            conn.commit()
+        except Exception:
+            pass
         # devices.muted (v2.6) — 是否静音
         try:
             conn.execute(sqlalchemy.text("ALTER TABLE devices ADD COLUMN muted BOOLEAN DEFAULT 0"))

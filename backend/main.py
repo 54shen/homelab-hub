@@ -28,6 +28,7 @@ from websocket_manager import connect, disconnect, broadcast
 from config import CLEANUP_INTERVAL_HOURS, HEARTBEAT_TIMEOUT_SECONDS
 import time
 import asyncio
+import pyotp
 
 
 @asynccontextmanager
@@ -86,7 +87,7 @@ app.add_middleware(
 
 
 # ---- Auth 中间件：强制 Token 认证（含读操作） ----
-PUBLIC_PATHS = ("/api/health", "/docs", "/openapi.json", "/redoc", "/api/auth/login", "/", "/ws")
+PUBLIC_PATHS = ("/api/health", "/docs", "/openapi.json", "/redoc", "/api/auth/login", "/api/auth/verify-2fa", "/", "/ws")
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
@@ -165,42 +166,159 @@ class LoginRequest(PydanticBase):
     username: str
     password: str
 
+def _issue_web_session(db, user, request) -> str:
+    """创建 Web 会话并返回会话 Token（login / verify-2fa 共用）"""
+    # 获取客户端 IP
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    client_ip = forwarded.split(",")[0].strip() if forwarded else (
+        request.client.host if request.client else ""
+    )
+    # 生成会话专用 Token（不污染 API Token 表）
+    import uuid
+    session_token = "ws-" + uuid.uuid4().hex
+
+    session = SessionModel(
+        user_id=user.id,
+        username=user.username,
+        permission=user.permission,
+        session_token=session_token,
+        ip=client_ip,
+        user_agent=request.headers.get("User-Agent", "")[:256]
+    )
+    db.add(session)
+    db.commit()
+    return session_token
+
+
 @app.post("/api/auth/login")
 def login(req: LoginRequest, request: Request):
-    """Web 登录：账号 + 密码 → 返回会话 Token（仅 Web 有效）"""
+    """Web 登录第一步：账号 + 密码。
+    未启用二次验证 → 直接返回会话 Token；已启用 → 返回 need_2fa，等第二步验证码。
+    """
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.username == req.username).first()
         if not user or not verify_password(req.password, user.password_hash):
             return JSONResponse(status_code=401, content={"detail": "账号或密码错误"})
 
-        # 获取客户端 IP
-        forwarded = request.headers.get("X-Forwarded-For", "")
-        client_ip = forwarded.split(",")[0].strip() if forwarded else (
-            request.client.host if request.client else ""
-        )
+        # 已启用二次验证 → 第一步不发会话，返回 need_2fa
+        if user.totp_enabled and user.totp_secret:
+            return {"success": False, "need_2fa": True, "username": user.username}
 
-        # 生成会话专用 Token（不污染 API Token 表）
-        import uuid
-        session_token = "ws-" + uuid.uuid4().hex
-
-        session = SessionModel(
-            user_id=user.id,
-            username=user.username,
-            permission=user.permission,
-            session_token=session_token,
-            ip=client_ip,
-            user_agent=request.headers.get("User-Agent", "")[:256]
-        )
-        db.add(session)
-        db.commit()
-
+        session_token = _issue_web_session(db, user, request)
         return {
             "success": True,
             "username": user.username,
             "permission": user.permission,
             "token": session_token
         }
+    finally:
+        db.close()
+
+
+class Verify2FARequest(PydanticBase):
+    username: str
+    code: str
+
+@app.post("/api/auth/verify-2fa")
+def verify_2fa(req: Verify2FARequest, request: Request):
+    """登录第二步：6 位 TOTP 验证码 → 校验通过发放会话 Token"""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == req.username).first()
+        if not user or not user.totp_enabled or not user.totp_secret:
+            return JSONResponse(status_code=401, content={"detail": "该账号未启用二次验证"})
+        if not pyotp.TOTP(user.totp_secret).verify(req.code.strip(), valid_window=1):
+            return JSONResponse(status_code=401, content={"detail": "验证码错误或已过期"})
+
+        session_token = _issue_web_session(db, user, request)
+        return {
+            "success": True,
+            "username": user.username,
+            "permission": user.permission,
+            "token": session_token
+        }
+    finally:
+        db.close()
+
+
+# ---- 二次验证(TOTP)管理：设置页使用，需已登录(Web 会话) ----
+def _current_user(request: Request, db):
+    """从 Authorization header 解析当前 Web 会话用户。"""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    token_str = auth[7:]
+    session_record = db.query(SessionModel).filter(SessionModel.session_token == token_str).first()
+    if session_record:
+        return db.query(User).filter(User.id == session_record.user_id).first()
+    return None
+
+
+class TwoFACodeRequest(PydanticBase):
+    code: str
+
+@app.get("/api/auth/2fa/status")
+def twofa_status(request: Request):
+    db = SessionLocal()
+    try:
+        user = _current_user(request, db)
+        if not user:
+            return JSONResponse(status_code=401, content={"detail": "未登录"})
+        return {"username": user.username, "enabled": bool(user.totp_enabled)}
+    finally:
+        db.close()
+
+
+@app.post("/api/auth/2fa/setup")
+def twofa_setup(request: Request):
+    """生成新 TOTP 密钥并返回 otpauth URI(未启用,等待 confirm 确认)"""
+    db = SessionLocal()
+    try:
+        user = _current_user(request, db)
+        if not user:
+            return JSONResponse(status_code=401, content={"detail": "未登录"})
+        secret = pyotp.random_base32()
+        user.totp_secret = secret
+        user.totp_enabled = 0  # 等待 confirm
+        db.commit()
+        uri = pyotp.TOTP(secret).provisioning_uri(name=user.username, issuer_name="Shared Center")
+        return {"secret": secret, "uri": uri}
+    finally:
+        db.close()
+
+
+@app.post("/api/auth/2fa/confirm")
+def twofa_confirm(req: TwoFACodeRequest, request: Request):
+    """输入 App 当前显示的 6 位码确认 → 正式启用"""
+    db = SessionLocal()
+    try:
+        user = _current_user(request, db)
+        if not user or not user.totp_secret:
+            return JSONResponse(status_code=400, content={"detail": "请先点击「启用」生成密钥"})
+        if not pyotp.TOTP(user.totp_secret).verify(req.code.strip(), valid_window=1):
+            return JSONResponse(status_code=400, content={"detail": "验证码错误,请确认 App 与手机时间准确"})
+        user.totp_enabled = 1
+        db.commit()
+        return {"success": True, "message": "二次验证已启用"}
+    finally:
+        db.close()
+
+
+@app.post("/api/auth/2fa/disable")
+def twofa_disable(req: TwoFACodeRequest, request: Request):
+    """输入 6 位码验证后关闭二次验证"""
+    db = SessionLocal()
+    try:
+        user = _current_user(request, db)
+        if not user or not user.totp_enabled:
+            return JSONResponse(status_code=400, content={"detail": "未启用二次验证"})
+        if not pyotp.TOTP(user.totp_secret).verify(req.code.strip(), valid_window=1):
+            return JSONResponse(status_code=400, content={"detail": "验证码错误"})
+        user.totp_enabled = 0
+        user.totp_secret = ""
+        db.commit()
+        return {"success": True, "message": "二次验证已关闭"}
     finally:
         db.close()
 
