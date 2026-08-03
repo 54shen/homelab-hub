@@ -116,6 +116,7 @@
     <n-data-table
       :columns="liveColumns"
       :data="liveChanges"
+      :row-key="(row: any) => row.uid"
       :bordered="false"
       size="small"
       style="background:var(--bg-card);border-radius:var(--radius-lg);box-shadow:var(--shadow-card)"
