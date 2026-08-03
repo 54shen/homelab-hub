@@ -56,17 +56,19 @@
       :bordered="false"
       size="small"
       style="background:var(--bg-card);border-radius:var(--radius-lg)"
-    />
-
-    <n-empty v-if="!items.length" description="等待实时数据…(页面打开后, KV 变更会实时出现在这里)" style="margin-top:60px" />
-    <n-empty v-else-if="!displayItems.length" description="无匹配记录" style="margin-top:60px" />
+    >
+      <!-- 空状态统一在表格内部,纯文字无图片 -->
+      <template #empty>
+        <span class="table-empty">{{ emptyText }}</span>
+      </template>
+    </n-data-table>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import {
-  NButton, NDataTable, NDatePicker, NEmpty, NInput, NSpace
+  NButton, NDataTable, NDatePicker, NInput, NSpace
 } from 'naive-ui'
 import { useFieldLabels } from '../composables/useFieldLabels'
 import { useWebSocket } from '../composables/useWebSocket'
@@ -111,6 +113,13 @@ const displayItems = computed<RowItem[]>(() =>
     kv_key: item.key,
     key: String(item.id)
   }))
+)
+
+// 空状态提示:未收到数据 / 有数据但筛选无匹配
+const emptyText = computed(() =>
+  items.value.length === 0
+    ? '等待实时数据…(页面打开后, KV 变更会实时出现在这里)'
+    : '无匹配记录'
 )
 
 // ---- 格式化音量 -1 → 🔇静音 ----
@@ -244,6 +253,10 @@ function exportCsv() {
   font-size: 12px;
   color: var(--text-secondary);
   margin-left: 4px;
+}
+.table-empty {
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 .filter-bar {
   display: flex;
