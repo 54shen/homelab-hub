@@ -55,8 +55,8 @@
       size="small"
       :row-key="rowKey"
       :pagination="pagination"
-      @update:page="page = $event"
-      @update:page-size="pageSize = $event; loadData()"
+      @update:page="onPageChange($event)"
+      @update:page-size="onPageSizeChange($event)"
     />
 
     <n-empty v-if="!loading && items.length === 0" description="暂无历史记录" style="margin-top:40px" />
@@ -93,6 +93,31 @@ const loading = ref(false)
 const filterStart = ref<number | null>(null)
 const filterEnd = ref<number | null>(null)
 const newCount = ref(0)
+
+// 游标分页:cursors[page-1] = 第 page 页起点(undefined = 最新)。
+// 翻页用 before_id,实时写入下翻页不重复
+const cursors = ref<Array<number | undefined>>([undefined])
+
+function resetCursor() {
+  cursors.value = [undefined]
+  page.value = 1
+}
+
+function onPageChange(p: number) {
+  if (p === page.value + 1) {
+    const last = items.value[items.value.length - 1]
+    if (last) cursors.value[p - 1] = last.id
+  }
+  page.value = p
+  cursors.value = cursors.value.slice(0, p)
+  // 不手动 loadData:watch(page) 会触发(避免双重请求)
+}
+
+function onPageSizeChange(ps: number) {
+  pageSize.value = ps
+  resetCursor()
+  loadData()
+}
 const seenKeys = new Set<string>()  // 追踪已显示的 key+changed_at，防止重复
 const hasFilter = computed(() => !!(filterStart.value || filterEnd.value))
 
@@ -198,9 +223,12 @@ const columns = [
 async function loadData() {
   loading.value = true
   try {
+    const cursor = cursors.value[page.value - 1]
     const params: Record<string, unknown> = {
       key: props.keyProp,
-      page: page.value,
+      // 游标模式(逐页翻):传 before_id;跨页跳转退化为 OFFSET
+      page: cursor === undefined ? page.value : undefined,
+      before_id: cursor,
       page_size: pageSize.value
     }
     if (filterStart.value) {
@@ -230,7 +258,7 @@ async function loadData() {
 
 function refresh() {
   newCount.value = 0
-  page.value = 1
+  resetCursor()
   loadData()
   loadTrend()
 }
@@ -263,7 +291,7 @@ let cleanupWs: (() => void) | null = null
 // immediate:父组件初始 show=true 时(如直接挂载为打开状态)也要加载数据
 watch(() => props.show, (visible) => {
   if (visible) {
-    page.value = 1
+    resetCursor()
     filterStart.value = null
     filterEnd.value = null
     newCount.value = 0

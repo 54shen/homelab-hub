@@ -157,6 +157,56 @@ def test_history_stats(client, admin_headers):
     assert body["per_hour"]  # 至少一个小时的桶
 
 
+def test_history_cursor_pagination_no_duplicates(client, admin_headers):
+    """游标分页:实时写入场景下翻页不重复、不遗漏(证明 OFFSET 会漂移)"""
+    # 初始 25 条记录(id 1~25,changed_at 递增)
+    rows = [
+        dict(key="cursor.k", old_value=None, new_value="1", source="agent",
+             changed_at=f"2026-08-01 10:{i:02d}:00")
+        for i in range(25)
+    ]
+    _seed(client, admin_headers, rows)
+
+    # 第 1 页(游标模式):最新 20 条
+    r1 = client.get("/api/history", params={"page_size": 20}, headers=admin_headers)
+    ids1 = [i["id"] for i in r1.json()["items"]]
+    assert len(ids1) == 20
+
+    # ── 模拟实时写入:翻页间隙插入 5 条新记录(id 26~30) ──
+    _seed(client, admin_headers, [
+        dict(key="cursor.k", old_value=None, new_value="1", source="agent",
+             changed_at=f"2026-08-01 10:{i:02d}:00")
+        for i in range(25, 30)
+    ])
+
+    # OFFSET 分页(page=2 跳过当前最新 20 条)→ 与第 1 页出现重复
+    r_offset = client.get("/api/history", params={"page": 2, "page_size": 20}, headers=admin_headers)
+    ids_offset = [i["id"] for i in r_offset.json()["items"]]
+    dup = set(ids1) & set(ids_offset)
+    assert dup, "OFFSET 分页在实时写入下必然出现重复(漂移)"
+
+    # 游标分页(before_id=第 1 页最后一条)→ 与第 1 页不重复
+    r2 = client.get("/api/history", params={"page_size": 20, "before_id": ids1[-1]}, headers=admin_headers)
+    ids2 = [i["id"] for i in r2.json()["items"]]
+    assert not (set(ids1) & set(ids2)), "游标分页不应与上一页重复"
+    # 已浏览范围(初始 25 条)完整覆盖,一条不漏;
+    # 新写入的 5 条(id 26~30)属于"更新"方向,回第 1 页才可见,不属于第 2 页
+    assert sorted(ids1 + ids2) == list(range(1, 26))
+
+
+def test_history_cursor_with_filters(client, admin_headers):
+    """游标与筛选条件(key/source)组合使用"""
+    _seed(client, admin_headers, [
+        dict(key="a.k1", old_value=None, new_value="1", source="agent", changed_at="2026-08-01 10:00:00"),
+        dict(key="a.k2", old_value=None, new_value="1", source="agent", changed_at="2026-08-01 10:01:00"),
+        dict(key="b.k3", old_value=None, new_value="1", source="ha", changed_at="2026-08-01 10:02:00"),
+    ])
+    r = client.get("/api/history", params={"prefix": "a", "page_size": 1, "before_id": 999}, headers=admin_headers)
+    ids = [i["id"] for i in r.json()["items"]]
+    assert len(ids) == 1       # 只返回符合条件的更早记录
+    assert ids[0] == 2         # a.k2(10:01 更新的那条,id 更大)
+
+
 def test_history_export_csv(client, admin_headers):
     _seed(client, admin_headers, [
         dict(key="e.v", old_value="1", new_value="2", source="agent", changed_at="2026-08-01 10:00:00"),

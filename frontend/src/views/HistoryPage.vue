@@ -242,6 +242,15 @@ const loading = ref(false)
 const error = ref('')
 const refreshInterval = ref(0) // 0 = 关闭
 
+// 游标分页:cursors[page-1] = 第 page 页的起点(undefined = 最新数据)。
+// 翻页用 before_id 而非 OFFSET,实时写入下翻页不重复、不遗漏
+const cursors = ref<Array<number | undefined>>([undefined])
+
+function resetCursor() {
+  cursors.value = [undefined]
+  page.value = 1
+}
+
 let timer: ReturnType<typeof setInterval> | null = null
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -287,7 +296,15 @@ async function loadAll() {
       records.value = r.data.items
       total.value = r.data.total
     } else {
-      const r = await historyApi.list({ ...params, page: page.value, page_size: pageSize.value })
+      const cursor = cursors.value[page.value - 1]
+      const r = await historyApi.list({
+        ...params,
+        // 游标模式(逐页翻):传 before_id 不传 page,新数据写入不影响已翻过的页;
+        // 跨页跳转(该页无游标):退化为 OFFSET 近似
+        page: cursor === undefined ? page.value : undefined,
+        before_id: cursor,
+        page_size: pageSize.value
+      })
       records.value = r.data.items
       total.value = r.data.total
       pages.value = Math.max(1, Math.ceil(r.data.total / pageSize.value))
@@ -306,7 +323,7 @@ function scheduleLoad() {
 }
 
 watch(filters, () => {
-  page.value = 1
+  resetCursor()  // 筛选条件变化 → 从最新数据重新开始
   scheduleLoad()
   earliestReached.value = false  // 筛选条件变化 → 重新允许向前扩展
 }, { deep: true })
@@ -315,12 +332,22 @@ watch([page, pageSize], scheduleLoad)
 // 手动翻页/改每页条数 → 关闭自动刷新(避免刷新把表格状态打乱)
 function onPageChange(p: number) {
   refreshInterval.value = 0
+  const cur = page.value
+  if (p === cur + 1) {
+    // 下一页:用当前页最后一条 id 作为下一页起点(游标)
+    const last = records.value[records.value.length - 1]
+    if (last) cursors.value[p - 1] = last.id
+  }
+  // 跨页跳转(>cur+1):该页游标缺失 → loadAll 退化为 OFFSET 近似
   page.value = p
+  cursors.value = cursors.value.slice(0, p)  // 丢弃后面的游标,保证回退正确
+  scheduleLoad()
 }
 
 function onPageSizeChange(ps: number) {
   refreshInterval.value = 0
   pageSize.value = ps
+  resetCursor()  // 每页条数变化 → 页边界全部失效,回到最新
 }
 
 watch(refreshInterval, () => {

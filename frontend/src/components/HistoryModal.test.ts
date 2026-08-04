@@ -250,7 +250,7 @@ describe('HistoryModal.vue', () => {
     expect(wrapper.find('.hm-badge').exists()).toBe(false)
   })
 
-  it('翻页 → 以新页码重新加载', async () => {
+  it('翻页 → 用游标(before_id)重新加载,不重复', async () => {
     mockList()
     const wrapper = mountModal()
     await openModal(wrapper)
@@ -259,9 +259,11 @@ describe('HistoryModal.vue', () => {
     await wrapper.find('.go-page-2').trigger('click')
     await flushPromises()
     expect(historyApiMock.list).toHaveBeenCalledTimes(2)
+    // 游标分页:传上一页最后一条 id,不传 page(实时写入下翻页不重复)
     expect(historyApiMock.list.mock.calls[1][0]).toEqual(
-      expect.objectContaining({ key: 'pc.cpu', page: 2, page_size: 20 })
+      expect.objectContaining({ key: 'pc.cpu', before_id: expect.any(Number), page_size: 20 })
     )
+    expect(historyApiMock.list.mock.calls[1][0].page).toBeUndefined()
   })
 
   it('切换每页条数 → 以新 pageSize 重新加载', async () => {

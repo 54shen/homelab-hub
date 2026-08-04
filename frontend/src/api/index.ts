@@ -179,6 +179,8 @@ export interface HistoryListParams {
   page?: number
   page_size?: number
   order?: 'asc' | 'desc'
+  /** 游标分页:只返回 id 小于该值的记录(实时写入下翻页不重复,翻页用) */
+  before_id?: number
 }
 
 export const historyApi = {

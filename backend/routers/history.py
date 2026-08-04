@@ -127,16 +127,28 @@ def list_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=50000),
     order: str = Query("desc", pattern="^(asc|desc)$"),
+    before_id: int | None = Query(None, description="游标分页:只返回 id 小于该值的记录(配合 id 排序)。实时写入下翻页不重复,推荐前端翻页使用"),
     db: Session = Depends(get_db)
 ):
-    """分页查询历史记录。key 精确匹配时用 ?key=，模糊搜索用 ?search=。"""
+    """分页查询历史记录。key 精确匹配时用 ?key=，模糊搜索用 ?search=。
+
+    游标分页(before_id):返回「比上一页最后一条(id=before_id)更早」的 page_size 条,
+    新数据写入不会改变已翻过页的边界 → 翻页永不重复、永不遗漏。
+    OFFSET 分页(page)保留用于跨页跳转等场景。
+    """
     q = _base_query(db.query(KvHistory), key, search, prefix, suffix, source, start, end)
 
     total = q.count()
-    ordering = KvHistory.changed_at.asc() if order == "asc" else KvHistory.changed_at.desc()
+    if before_id is not None:
+        q = q.filter(KvHistory.id < before_id)
+    # 排序带 id tie-breaker:同秒批次(id 连续)在页边界处顺序稳定
+    if order == "asc":
+        ordering = (KvHistory.changed_at.asc(), KvHistory.id.asc())
+    else:
+        ordering = (KvHistory.changed_at.desc(), KvHistory.id.desc())
     items = (
-        q.order_by(ordering)
-        .offset((page - 1) * page_size)
+        q.order_by(*ordering)
+        .offset(0 if before_id is not None else (page - 1) * page_size)  # 游标模式固定从起点取
         .limit(page_size)
         .all()
     )
