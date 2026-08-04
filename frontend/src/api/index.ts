@@ -201,6 +201,10 @@ export const historyApi = {
   frequency(params: { key: string; start?: string; end?: string }) {
     return http.get<Array<{ minute: string; count: number }>>('/history/frequency', { params })
   },
+  /** 全部 key 按小时聚合的变更数(任意时间范围) */
+  hourly(params: { start?: string; end?: string }) {
+    return http.get<Array<{ hour: string; count: number }>>('/history/hourly', { params })
+  },
   exportCsv(params: HistoryListParams) {
     return http.get('/history/export', { params, responseType: 'blob' })
   }

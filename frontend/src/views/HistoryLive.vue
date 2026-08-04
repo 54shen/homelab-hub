@@ -51,9 +51,9 @@
       <span class="local-note">初始加载最近 {{ INITIAL_COUNT }} 条 · 后续 WS 实时续流 · 上限 {{ MAX_ITEMS }} 条</span>
     </div>
 
-    <!-- 每小时变量更新数折线图:最近 24h 分布 + 每分钟刷新当前小时,滚轮缩放/拖动平移 -->
+    <!-- 每小时变量更新数折线图:时间筛选联动,拖到左边界自动向前扩展 -->
     <div v-if="chartPoints.length > 0" style="margin-bottom:12px">
-      <TrendChart :points="chartPoints" title="每小时变量更新数(最近24h)" plot-kind="number" />
+      <TrendChart :points="chartPoints" title="每小时变量更新数" plot-kind="number" @reach-start="onChartReachStart" />
     </div>
 
     <n-data-table
@@ -72,9 +72,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, ref } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
-  NButton, NDataTable, NDatePicker, NInput, NSpace
+  NButton, NDataTable, NDatePicker, NInput, NSpace, useMessage
 } from 'naive-ui'
 import { useFieldLabels } from '../composables/useFieldLabels'
 import { useWebSocket } from '../composables/useWebSocket'
@@ -82,48 +82,99 @@ import { dashboardApi, historyApi } from '../api'
 import TrendChart from '../components/TrendChart.vue'
 import type { KvHistory, TrendPoint } from '../types'
 
+const message = useMessage()
 const { labelOf } = useFieldLabels()
 
-// ---- 每小时变更数折线图:默认展示最近 24h 逐小时分布 ----
-// 每分钟轮询一次,刷新「当前小时」的累计变更数(实时增长);跨小时后自动补新点
+// ---- 每小时变更数折线图:可查看超过 24h 的历史(拖动到左边界自动扩展) ----
+// 时间筛选联动:筛了时间 → 图表按筛选范围加载;未筛 → 最近 24h,可向前扩展
 const chartPoints = ref<TrendPoint[]>([])
-const MAX_CHART_POINTS = 24  // 最近 24 小时窗口,超出丢最旧
+const MAX_CHART_POINTS = 720  // 上限 30 天(小时点),超出丢最旧
 let chartTimer: ReturnType<typeof setInterval> | null = null
 
 function pad2(n: number): string { return String(n).padStart(2, '0') }
 function hourKey(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}`
 }
-function nowStr(): string {
-  const d = new Date()
+function fmtDate(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
 }
+function nowStr(): string {
+  return fmtDate(new Date())
+}
 
-// 初始:stats 接口拉近 24h 逐小时计数,补齐为连续 24 个点(空小时补 0)
-async function loadChartInitial() {
+// 按时间范围加载小时数据并补齐连续小时点(空小时补 0)
+async function loadChart() {
   try {
-    const res = await historyApi.stats()
-    const perHour = res.data?.per_hour ?? []
-    const byHour = new Map(perHour.map(h => [h.hour, h.count]))
+    let start: string | undefined
+    let end: string | undefined
+    if (filterStart.value) start = fmtDate(new Date(filterStart.value))
+    if (filterEnd.value) end = fmtDate(new Date(filterEnd.value))
+    if (!start) {
+      const d = new Date(Date.now() - 24 * 3600 * 1000)
+      start = fmtDate(d)
+    }
+    const res = await historyApi.hourly({ start, end })
+    const byHour = new Map((res.data ?? []).map(h => [h.hour, h.count]))
+    // 补齐 start ~ end 的连续小时
     const points: TrendPoint[] = []
-    // 以当前小时为右端,向前补满 24 个连续小时
-    const base = new Date()
-    for (let i = 23; i >= 0; i--) {
-      const d = new Date(base)
-      d.setHours(base.getHours() - i)
-      const hk = hourKey(d)
+    const cur = new Date(start.replace(' ', 'T'))
+    cur.setMinutes(0, 0, 0)
+    const stop = new Date((end ?? nowStr()).replace(' ', 'T'))
+    while (cur <= stop) {
+      const hk = hourKey(cur)
       const count = byHour.get(hk) ?? 0
       points.push({ changed_at: `${hk}:00`, value: count, raw: `${count} 条` })
+      cur.setHours(cur.getHours() + 1)
     }
     chartPoints.value = points
-    console.log('[变更动态图表] 初始加载 24h 小时分布: 24 点 | 首:', points[0].changed_at, '| 末:', points[23].changed_at)
+    console.log('[变更动态图表] 加载:', points.length, '点 | 首:', points[0]?.changed_at, '| 末:', points[points.length - 1]?.changed_at)
   } catch (e) {
-    console.error('[变更动态图表] 初始小时数据加载失败:', e)
+    console.error('[变更动态图表] 加载失败:', e)
   }
 }
 
-// 每分钟轮询:刷新当前小时累计数,跨小时自动补新点
+// 拖动到左边界 → 再向前扩展 24h
+const chartEarlierLoading = ref(false)
+
+async function onChartReachStart() {
+  if (chartEarlierLoading.value || chartPoints.value.length === 0) return
+  const earliest = chartPoints.value[0].changed_at
+  const endD = new Date(earliest.replace(' ', 'T'))
+  endD.setSeconds(endD.getSeconds() - 1)
+  const startD = new Date(endD)
+  startD.setHours(startD.getHours() - 24)
+  chartEarlierLoading.value = true
+  try {
+    const res = await historyApi.hourly({ start: fmtDate(startD), end: fmtDate(endD) })
+    const byHour = new Map((res.data ?? []).map(h => [h.hour, h.count]))
+    const pts: TrendPoint[] = []
+    const cur = new Date(startD)
+    cur.setMinutes(0, 0, 0)
+    while (cur <= endD) {
+      const hk = hourKey(cur)
+      const count = byHour.get(hk) ?? 0
+      pts.push({ changed_at: `${hk}:00`, value: count, raw: `${count} 条` })
+      cur.setHours(cur.getHours() + 1)
+    }
+    if (pts.length === 0) {
+      message.info('已到最早的数据,没有更早的记录')
+    } else {
+      chartPoints.value = [...pts, ...chartPoints.value]
+      if (chartPoints.value.length > MAX_CHART_POINTS) {
+        chartPoints.value = chartPoints.value.slice(-MAX_CHART_POINTS)
+      }
+      console.log('[变更动态图表] 向前扩展 24h:', pts.length, '点 | 总:', chartPoints.value.length)
+    }
+  } catch (e) {
+    console.error('[变更动态图表] 扩展失败:', e)
+  } finally {
+    chartEarlierLoading.value = false
+  }
+}
+
+// 每分钟轮询:刷新当前小时累计数,跨小时自动补新点(仅未筛时间时)
 async function fetchMinuteCount() {
+  if (filterStart.value || filterEnd.value) return  // 筛选了时间 → 图表静态
   const now = new Date()
   const hk = hourKey(now)
   try {
@@ -137,7 +188,7 @@ async function fetchMinuteCount() {
       last.raw = `${count} 条`
       console.log('[变更动态图表] 轮询刷新当前小时:', hk, '→', count, '条')
     } else {
-      // 跨小时:追加新点,超出 24 个丢最旧
+      // 跨小时:追加新点,超出上限丢最旧
       pts.push({ changed_at: `${hk}:00`, value: count, raw: `${count} 条` })
       if (pts.length > MAX_CHART_POINTS) pts.shift()
       console.log('[变更动态图表] 跨小时追加新点:', hk, '→', count, '条 | 点数:', pts.length)
@@ -269,10 +320,12 @@ function insertItem(newItem: KvHistory) {
 
 onMounted(() => {
   loadInitial()
-  // 初始拉 24h 小时分布 + 每分钟轮询刷新当前小时累计
-  loadChartInitial()
+  // 初始按筛选范围加载小时分布 + 每分钟轮询刷新当前小时累计
+  loadChart()
   fetchMinuteCount()
   chartTimer = setInterval(fetchMinuteCount, 60 * 1000)
+  // 时间筛选变化 → 图表按筛选范围重新加载
+  watch([filterStart, filterEnd], () => loadChart())
   cleanupWs = on((event, data: any) => {
     if (event === 'kv.changed') {
       receivedCount.value++

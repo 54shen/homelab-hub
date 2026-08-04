@@ -305,7 +305,11 @@ function scheduleLoad() {
   debounceTimer = setTimeout(loadAll, 300)
 }
 
-watch(filters, () => { page.value = 1; scheduleLoad() }, { deep: true })
+watch(filters, () => {
+  page.value = 1
+  scheduleLoad()
+  earliestReached.value = false  // 筛选条件变化 → 重新允许向前扩展
+}, { deep: true })
 watch([page, pageSize], scheduleLoad)
 
 // 手动翻页/改每页条数 → 关闭自动刷新(避免刷新把表格状态打乱)
