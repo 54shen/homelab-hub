@@ -238,6 +238,24 @@ def history_trend(
     return TrendSeries(key=key, points=points, count=len(points), kind=kind)
 
 
+@router.get("/history/frequency")
+def history_frequency(
+    key: str = Query(..., description="必填，哪个 key 的上报频率"),
+    start: str | None = Query(None, description="起始时间(跟随图表缩放窗口)"),
+    end: str | None = Query(None, description="结束时间"),
+    db: Session = Depends(get_db)
+):
+    """某 key 按分钟聚合的上报频率:每行 = 一分钟内的变更次数(时间范围由前端传入)。"""
+    minute_expr = func.substr(KvHistory.changed_at, 1, 16).label("minute")
+    q = db.query(minute_expr, func.count(KvHistory.id).label("count")).filter(KvHistory.key == key)
+    if start:
+        q = q.filter(KvHistory.changed_at >= start)
+    if end:
+        q = q.filter(KvHistory.changed_at <= end)
+    rows = q.group_by(minute_expr).order_by(minute_expr.asc()).all()
+    return [{"minute": r[0], "count": r[1]} for r in rows]
+
+
 @router.get("/history/stats", response_model=HistoryStats)
 def history_stats(db: Session = Depends(get_db)):
     """总览统计:总数、最近变更、最近 24h 各来源与逐小时计数。"""

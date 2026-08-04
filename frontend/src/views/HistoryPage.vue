@@ -5,6 +5,7 @@
      ============================================================ -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { NButton, NSelect, useMessage } from 'naive-ui'
 import { historyApi, type HistoryListParams } from '../api'
 import FilterBar, { type HistoryFilters } from '../components/FilterBar.vue'
@@ -30,11 +31,16 @@ const REFRESH_OPTIONS = [
 ]
 
 const message = useMessage()
+const route = useRoute()
+const router = useRouter()
+
+// 初始从 URL 恢复选中的 key(支持鼠标后退键返回)
+const initialKey = (route.query.key as string | undefined) || null
 
 const keys = ref<HistoryKeyInfo[]>([])
 const sources = ref<HistorySource[]>([])
 const stats = ref<HistoryStats | null>(null)
-const filters = ref<HistoryFilters>({ search: null, key: null, prefix: null, suffix: null, source: null, start: null, end: null })
+const filters = ref<HistoryFilters>({ search: null, key: initialKey, prefix: null, suffix: null, source: null, start: null, end: null })
 
 // 分组模式:按 key 前缀分组(与变量管理一致),开启时拉全量
 const groupByPrefix = ref(false)
@@ -83,6 +89,148 @@ function onSelectKey(key: string) {
 // 返回:清除 key 筛选,恢复完整列表(其他筛选条件保留)
 function clearChartKey() {
   filters.value.key = null
+}
+
+// ---- 路由同步:选中 key 写入 URL,鼠标后退键可返回 ----
+// key 变化 → push 到 URL(产生历史记录,后退键才能回到上一步)
+watch(() => filters.value.key, (k) => {
+  const qk = route.query.key as string | undefined
+  if ((k || undefined) !== qk) {
+    router.push({ query: { ...route.query, key: k || undefined } })
+  }
+})
+// URL 变化(后退键/侧键)→ 同步回筛选状态
+watch(() => route.query.key, (k) => {
+  const nk = (k as string | undefined) || null
+  if (nk !== filters.value.key) filters.value.key = nk
+})
+
+// ---- 图表模式:值趋势 ⇄ 上报频率折线(单击切换,横轴窗口保持) ----
+const chartMode = ref<'value' | 'frequency'>('value')
+// 频率原始数据(分钟粒度,前端按窗口跨度自适应聚合展示)
+const freqMinutePoints = ref<TrendPoint[]>([])
+// 各模式保存自己的缩放窗口,切换时恢复(时间轴比例不变)
+const valueZoom = ref<{ start: string; end: string } | null>(null)
+const freqZoom = ref<{ start: string; end: string } | null>(null)
+
+// 频率粒度:按可视窗口跨度自适应(1 → 5 → 10 → 30 → 60 分钟)
+const freqStep = ref(1)
+function pickStep(win: { start: string; end: string } | null): number {
+  if (!win) return 1
+  const spanH = (new Date(win.end).getTime() - new Date(win.start).getTime()) / 3600000
+  if (spanH <= 3) return 1
+  if (spanH <= 12) return 5
+  if (spanH <= 24) return 10
+  if (spanH <= 48) return 30
+  return 60
+}
+
+// 分钟数据 → 按粒度聚合(前端本地计算,无需重新请求)
+function aggregateByStep(minutes: TrendPoint[], step: number): TrendPoint[] {
+  if (step <= 1) return minutes
+  const map = new Map<number, number>()
+  for (const p of minutes) {
+    const t = new Date(p.changed_at.replace(' ', 'T'))
+    const epoch = Math.floor(t.getTime() / 1000)
+    const block = Math.floor(epoch / (step * 60)) * (step * 60)
+    map.set(block, (map.get(block) ?? 0) + p.value)
+  }
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return [...map.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([block, count]) => {
+      const d = new Date(block * 1000)
+      return {
+        changed_at: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:00`,
+        value: count,
+        raw: `${count} 次`,
+      }
+    })
+}
+
+const freqPoints = computed(() => aggregateByStep(freqMinutePoints.value, freqStep.value))
+
+// 缩放/拖动窗口变化 → 重算频率粒度(computed 自动重新聚合)
+function onChartZoom(win: { start: string; end: string } | null) {
+  freqStep.value = pickStep(win)
+}
+
+async function onChartClick(win: { start: string; end: string } | null) {
+  if (!filters.value.key) return
+  if (chartMode.value === 'value') {
+    // 值趋势 → 上报频率折线:请求当前缩放窗口内按分钟聚合的数据
+    valueZoom.value = win
+    freqZoom.value = win
+    freqStep.value = pickStep(win)
+    chartMode.value = 'frequency'
+    try {
+      const res = await historyApi.frequency({
+        key: filters.value.key,
+        start: win?.start,
+        end: win?.end,
+      })
+      freqMinutePoints.value = (res.data ?? []).map(r => ({
+        changed_at: `${r.minute}:00`,
+        value: r.count,
+        raw: `${r.count} 次`,
+      }))
+    } catch {
+      freqMinutePoints.value = []
+    }
+  } else {
+    // 上报频率 → 值趋势:恢复保存的窗口
+    freqZoom.value = win
+    chartMode.value = 'value'
+  }
+}
+
+// 拖动时间轴到最早数据边界 → 自动多取 24 小时数据并缓存,时间轴可继续向前扩展
+const earlierLoading = ref(false)
+const earliestReached = ref(false)  // 已到数据真实起点,不再请求
+
+function fmtTime(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+async function onNeedEarlier() {
+  if (earlierLoading.value || earliestReached.value || !filters.value.key) return
+  const isFreq = chartMode.value === 'frequency'
+  const pts = isFreq ? freqMinutePoints.value : points.value
+  if (pts.length === 0) return
+  const earliest = pts[0].changed_at
+  // 再往前 24 小时(终点取最早点前 1 秒,避免重复)
+  const startD = new Date(earliest.replace(' ', 'T'))
+  startD.setHours(startD.getHours() - 24)
+  const endD = new Date(earliest.replace(' ', 'T'))
+  endD.setSeconds(endD.getSeconds() - 1)
+  earlierLoading.value = true
+  try {
+    if (isFreq) {
+      const res = await historyApi.frequency({ key: filters.value.key, start: fmtTime(startD), end: fmtTime(endD) })
+      const newPts = (res.data ?? []).map(r => ({ changed_at: `${r.minute}:00`, value: r.count, raw: `${r.count} 次` }))
+      if (newPts.length === 0) {
+        earliestReached.value = true
+        message.info('已到最早的数据,没有更早的记录')
+      } else {
+        freqMinutePoints.value = [...newPts, ...freqMinutePoints.value]
+        console.log('[历史记录] 频率模式向前扩展 24h:', newPts.length, '个分钟, 总:', freqMinutePoints.value.length)
+      }
+    } else {
+      const res = await historyApi.trend({ key: filters.value.key, start: fmtTime(startD), end: fmtTime(endD) })
+      if (res.data.points.length === 0) {
+        earliestReached.value = true
+        message.info('已到最早的数据,没有更早的记录')
+      } else {
+        points.value = [...res.data.points, ...points.value]
+        console.log('[历史记录] 值趋势向前扩展 24h:', res.data.points.length, '点, 总:', points.value.length)
+      }
+    }
+  } catch {
+    /* 加载失败保持现状 */
+  } finally {
+    earlierLoading.value = false
+  }
 }
 const page = ref(1)
 const pageSize = ref(20)
@@ -238,9 +386,13 @@ onBeforeUnmount(() => {
 
     <div v-if="showChart" class="chart-wrap">
       <TrendChart
-        :points="points"
-        :title="`${keyLabel(filters.key)} 趋势`"
-        :plot-kind="selectedKey?.plot_kind || ''"
+        :points="chartMode === 'frequency' ? freqPoints : points"
+        :title="chartMode === 'frequency' ? `${keyLabel(filters.key)} 上报频率(粒度${freqStep}分钟)` : `${keyLabel(filters.key)} 趋势`"
+        :plot-kind="chartMode === 'frequency' ? 'number' : (selectedKey?.plot_kind || '')"
+        :zoom="chartMode === 'frequency' ? freqZoom : valueZoom"
+        @click="onChartClick"
+        @zoom="onChartZoom"
+        @reach-start="onNeedEarlier"
       />
     </div>
 

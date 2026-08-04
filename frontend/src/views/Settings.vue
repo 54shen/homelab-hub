@@ -40,10 +40,10 @@
           </div>
         </div>
       </div>
-      <div v-else class="twofa-row">
+      <div v-else class="twofa-enabled">
         <span style="color:var(--color-success);font-size:13px">✅ 已启用 —— 登录时需要输入手机 App 的动态验证码</span>
         <n-button size="small" type="error" ghost @click="twofaDisableMode = !twofaDisableMode">关闭</n-button>
-        <div v-if="twofaDisableMode" style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <div v-if="twofaDisableMode" class="twofa-disable-confirm">
           <n-input
             v-model:value="twofaConfirmCode"
             placeholder="输入验证码确认关闭"
@@ -534,6 +534,20 @@ onMounted(() => { loadUsers(); loadTokens(); loadSessions(); loadDbStatus(); loa
 
 /* 二次验证 */
 .twofa-row { display: flex; flex-direction: column; gap: 12px; }
+/* 已启用状态:文字靠左,关闭按钮靠右,确认区独占一行 */
+.twofa-enabled {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.twofa-disable-confirm {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
 .twofa-desc p {
   font-size: 13px;
   color: var(--text-secondary);

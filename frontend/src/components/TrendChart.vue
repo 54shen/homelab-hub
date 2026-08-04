@@ -7,15 +7,56 @@ const props = defineProps<{
   points: TrendPoint[]
   title?: string
   plotKind?: string  // '' / 'number' / 'duration' / 'timestamp' 决定 y 轴与 tooltip 展示
+  zoom?: { start: string; end: string } | null  // 外部要恢复的 dataZoom 窗口(切模式时保持横轴比例)
+}>()
+
+// 单击图表 → 携带当前 dataZoom 可视时间窗口(供频率视图等使用)
+// 缩放/拖动窗口变化 → 通知外部(频率视图按窗口跨度自适应粒度)
+// 拖动到最早数据边界 → 通知外部加载更早数据(时间轴可继续向前扩展)
+const emit = defineEmits<{
+  click: [win: { start: string; end: string } | null]
+  zoom: [win: { start: string; end: string } | null]
+  'reach-start': []
 }>()
 
 const el = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
 
+// 当前可视窗口:由 dataZoom 百分比映射到数据点时间范围
+function currentWindow(): { start: string; end: string } | null {
+  if (!chart) return null
+  const dz = (chart.getOption() as any)?.dataZoom?.[0]
+  const s = dz?.start ?? 0
+  const e = dz?.end ?? 100
+  const n = props.points.length
+  if (n === 0) return null
+  const i0 = Math.max(0, Math.min(n - 1, Math.floor((s / 100) * n)))
+  const i1 = Math.max(0, Math.min(n - 1, Math.ceil((e / 100) * n) - 1))
+  return { start: props.points[i0].changed_at, end: props.points[i1].changed_at }
+}
+
+// 缩放/拖动窗口变化 → 通知外部(频率粒度自适应);到达最早数据边界 → 请求更早数据(节流 1s)
+let reachLock = false
+function onDataZoom() {
+  emit('zoom', currentWindow())
+  if (reachLock || props.points.length === 0) return
+  const dz = (chart?.getOption() as any)?.dataZoom?.[0]
+  if (dz && dz.start <= 0.5) {
+    // 窗口起点已到达(接近)最早数据点 → 请求更早数据
+    reachLock = true
+    emit('reach-start')
+    setTimeout(() => { reachLock = false }, 1000)
+  }
+}
+
 onMounted(async () => {
   await nextTick() // 防容器刚可见时 init 拿到 0 宽
   chart = echarts.init(el.value)
   window.addEventListener('resize', onResize)
+  // 单击图表任意位置(含空白)→ 通知外部,并带上当前缩放窗口
+  chart.getZr().on('click', () => emit('click', currentWindow()))
+  // 拖动/缩放时间轴 → 检测是否到达最早边界
+  chart.on('datazoom', onDataZoom)
   render()
 })
 
@@ -27,6 +68,15 @@ onBeforeUnmount(() => {
 
 // deep:WS 实时插入的新点走 splice 原地修改(引用不变),必须监听内容变化
 watch(() => props.points, render, { deep: true })
+
+// 模式切换时恢复缩放窗口(横轴比例不变);引用不变(如数据扩展)时不触发,避免拖动跳窗
+watch(() => props.zoom, (z, old) => {
+  if (z && z !== old && chart) {
+    nextTick(() => {
+      chart?.dispatchAction({ type: 'dataZoom', startValue: z.start, endValue: z.end })
+    })
+  }
+})
 
 function onResize() {
   chart && chart.resize()
@@ -97,7 +147,13 @@ function render() {
     tooltip,
     grid: { left: 70, right: 25, top: 42, bottom: 32 },
     xAxis: { type: 'time' },
-    yAxis: { type: 'value', scale: true, axisLabel: { formatter: yAxisFormatter } },
+    // 非时间戳型从 0 开始(值趋势/频率切换时 y 轴不跳);时间戳型保持压缩轴
+    yAxis: {
+      type: 'value',
+      scale: props.plotKind === 'timestamp',
+      min: props.plotKind === 'timestamp' ? undefined : 0,
+      axisLabel: { formatter: yAxisFormatter },
+    },
     // 时间轴缩放/平移:滚轮与双指缩放,拖拽平移,时间轴上滚动同样生效
     dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
     series: [{

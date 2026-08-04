@@ -197,6 +197,10 @@ export const historyApi = {
   stats() {
     return http.get<HistoryStats>('/history/stats')
   },
+  /** 按分钟聚合的上报频率(时间范围 = 图表缩放窗口) */
+  frequency(params: { key: string; start?: string; end?: string }) {
+    return http.get<Array<{ minute: string; count: number }>>('/history/frequency', { params })
+  },
   exportCsv(params: HistoryListParams) {
     return http.get('/history/export', { params, responseType: 'blob' })
   }
