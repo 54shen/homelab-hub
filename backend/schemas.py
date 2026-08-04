@@ -34,8 +34,7 @@ class KvEntryOut(BaseModel):
     expire_seconds: Optional[int]
     retention_days: int
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}  # 允许从 ORM 对象序列化(pydantic v2 写法)
 
 
 # ---- Device ----
@@ -85,8 +84,7 @@ class DeviceOut(BaseModel):
     last_heartbeat: str
     registered_at: str
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}  # 允许从 ORM 对象序列化(pydantic v2 写法)
 
 
 # ---- Dashboard ----
@@ -157,8 +155,7 @@ class AlertRuleOut(BaseModel):
     last_triggered: Optional[str]
     body: Optional[str]
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}  # 允许从 ORM 对象序列化(pydantic v2 写法)
 
 
 # ---- Webhook ----
@@ -196,8 +193,7 @@ class WebhookOut(BaseModel):
     last_sent: Optional[str]
     fail_count: int
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}  # 允许从 ORM 对象序列化(pydantic v2 写法)
 
 
 # ---- System Log ----
@@ -209,8 +205,7 @@ class SystemLogOut(BaseModel):
     detail: Optional[str]
     created_at: str
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}  # 允许从 ORM 对象序列化(pydantic v2 写法)
 
 
 class SystemLogListOut(BaseModel):
@@ -235,8 +230,7 @@ class KvHistoryOut(BaseModel):
     retention_days: int
     changed_at: str
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}  # 允许从 ORM 对象序列化(pydantic v2 写法)
 
 
 class KvHistoryListOut(BaseModel):
@@ -297,8 +291,7 @@ class FieldMappingOut(BaseModel):
     field_key: str
     display_name: str
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}  # 允许从 ORM 对象序列化(pydantic v2 写法)
 
 
 # ---- Settings ----

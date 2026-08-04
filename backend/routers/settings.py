@@ -86,13 +86,21 @@ async def restore_backup(file: UploadFile, db: Session = Depends(get_db), token=
     # Devices（按 name 去重覆盖）
     if "devices" in data:
         for item in data["devices"]:
+            # 备份里布尔字段是字符串("True"/"False"),转成真正的布尔值,否则 Boolean 列拒绝写入
+            for bf in ("online", "muted"):
+                if item.get(bf) is not None:
+                    item[bf] = str(item[bf]).lower() in ("true", "1", "yes")
             existing = db.query(Device).filter(Device.name == item.get("name")).first()
             if existing:
                 for k, v in item.items():
                     if k != "id" and hasattr(existing, k):
                         setattr(existing, k, v)
             else:
-                db.add(Device(**{k: v for k, v in item.items() if k != "id"}))
+                # 备份里没有 id 时,用与注册一致的 md5 规则生成,保证主键非空
+                from routers.devices import _gen_device_id
+                fields = {k: v for k, v in item.items() if k != "id"}
+                fields["id"] = item.get("id") or _gen_device_id(item.get("name", ""), item.get("type", ""))
+                db.add(Device(**fields))
             restored["devices"] += 1
         db.commit()
 

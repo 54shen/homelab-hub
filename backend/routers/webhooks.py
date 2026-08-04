@@ -230,7 +230,6 @@ def _build_payload(wh: WebhookConfig, event: str, event_data: dict | None = None
         return obj
 
     return replace_placeholders(merged)
-    return default
 
 
 @router.post("/webhooks/preview-url")

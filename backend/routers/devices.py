@@ -2,6 +2,7 @@
 # Shared Center — 设备管理 API
 # ============================================================
 from datetime import datetime
+import sqlalchemy
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from database import get_db
@@ -59,8 +60,15 @@ def get_device_variables(device_id: str, db: Session = Depends(get_db)):
     d = db.query(Device).filter(Device.id == device_id).first()
     if not d:
         return []
-    prefix = d.name.lower().replace("-", ".").replace(" ", ".") + "."
-    return db.query(KvEntry).filter(KvEntry.key.like(f"{prefix}%")).all()
+    # 兼容两种前缀:原始名称(注册/心跳写入用,如 "监控-1.xxx")和
+    # 转换名称(连字符/空格→点,如 "监控.1.xxx"),取并集避免漏变量
+    prefixes = [d.name + "."]
+    transformed = d.name.lower().replace("-", ".").replace(" ", ".")
+    if transformed + "." != prefixes[0]:
+        prefixes.append(transformed + ".")
+    return db.query(KvEntry).filter(
+        sqlalchemy.or_(*[KvEntry.key.like(f"{p}%") for p in prefixes])
+    ).all()
 
 
 @router.post("/device/register", response_model=ApiResponse)

@@ -38,8 +38,9 @@ function currentWindow(): { start: string; end: string } | null {
 // 缩放/拖动窗口变化 → 通知外部(频率粒度自适应);到达最早数据边界 → 请求更早数据(节流 1s)
 let reachLock = false
 function onDataZoom() {
+  if (props.points.length === 0) return  // 空数据不触发任何事件(与有数据时行为一致)
   emit('zoom', currentWindow())
-  if (reachLock || props.points.length === 0) return
+  if (reachLock) return
   const dz = (chart?.getOption() as any)?.dataZoom?.[0]
   if (dz && dz.start <= 0.5) {
     // 窗口起点已到达(接近)最早数据点 → 请求更早数据

@@ -3,14 +3,18 @@ import { NSelect } from 'naive-ui'
 import type { KvHistory } from '../types'
 import { useFieldLabels } from '../composables/useFieldLabels'
 
-const props = defineProps<{
+// 注意:showPager 必须默认 true —— 否则调用方不传时 Vue 给 Boolean prop
+// 填 false,分页器永远不渲染(历史记录平铺视图将无法翻页)
+const props = withDefaults(defineProps<{
   items: KvHistory[]
   total: number
   page: number
   pageSize: number
   pages: number
-  showPager?: boolean  // 分组视图等场景隐藏分页器
-}>()
+  showPager?: boolean  // 分组视图等场景显式传 false 隐藏分页器
+}>(), {
+  showPager: true
+})
 
 // 字段映射:英文 key 后缀 → 中文显示名(无映射时返回原 key)
 const { labelOf } = useFieldLabels()

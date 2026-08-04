@@ -126,6 +126,9 @@ def _write_kv(db: Session, key: str, value: str, source: str, typ: str):
 
     值无变化时完全静默：不更新 entry、不触发告警。
     """
+    # autoflush=False 时,先 flush 让同一会话内刚写入的 key 对后续查询可见
+    # (否则批量上报中重复 entity 会走"新建"分支 → UNIQUE 冲突)
+    db.flush()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     entry = db.query(KvEntry).filter(KvEntry.key == key).first()
 

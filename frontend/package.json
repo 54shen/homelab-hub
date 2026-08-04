@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage"
   },
   "dependencies": {
     "@vicons/ionicons5": "^0.13.0",
@@ -20,8 +22,13 @@
   "devDependencies": {
     "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-vue": "^5.1.4",
+    "@vitest/coverage-istanbul": "^3.2.7",
+    "@vitest/coverage-v8": "^4.1.10",
+    "@vue/test-utils": "^2.4.11",
+    "jsdom": "^26.1.0",
     "typescript": "~5.6.2",
     "vite": "^5.4.10",
+    "vitest": "^3.2.7",
     "vue-tsc": "^2.1.8"
   }
 }

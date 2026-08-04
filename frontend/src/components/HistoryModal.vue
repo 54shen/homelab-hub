@@ -260,6 +260,7 @@ watch(page, () => loadData())  // 翻页时重新请求
 const { on } = useWebSocket()
 let cleanupWs: (() => void) | null = null
 
+// immediate:父组件初始 show=true 时(如直接挂载为打开状态)也要加载数据
 watch(() => props.show, (visible) => {
   if (visible) {
     page.value = 1
@@ -328,7 +329,7 @@ watch(() => props.show, (visible) => {
     cleanupWs?.()
     cleanupWs = null
   }
-})
+}, { immediate: true })
 
 onUnmounted(() => {
   cleanupWs?.()

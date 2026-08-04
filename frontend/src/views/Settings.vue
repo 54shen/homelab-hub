@@ -87,7 +87,7 @@
             <n-input-number v-model:value="sysSettings.heartbeatTimeout" :min="10" :max="600" style="width:160px" />
             <span style="margin-left:8px;font-size:12px;color:var(--text-secondary)">秒</span>
           </n-form-item>
-          <n-button type="primary" size="small">保存设置</n-button>
+          <n-button type="primary" size="small" :loading="sysLoading" @click="handleSaveSystemConfig">保存设置</n-button>
         </n-form>
       </n-card>
 
@@ -487,10 +487,41 @@ async function loadSessions() {
 
 // ---- 数据库 ----
 const sysSettings = ref({ cleanupInterval: '24h', defaultRetention: 180, heartbeatTimeout: 60 })
+const sysLoading = ref(false)
 const intervalOptions = [
   { label: '每 1 小时', value: '1h' }, { label: '每 6 小时', value: '6h' },
   { label: '每 12 小时', value: '12h' }, { label: '每天', value: '24h' }
 ]
+
+// 加载系统配置(后端返回数字小时 → 转 'Nh' 格式)
+async function loadSystemConfig() {
+  try {
+    const res = await settingsApi.getSystemConfig()
+    const c = res.data as Record<string, unknown>
+    if (c) {
+      sysSettings.value = {
+        cleanupInterval: `${c.cleanup_interval_hours}h`,
+        defaultRetention: Number(c.default_retention_days) || 180,
+        heartbeatTimeout: Number(c.heartbeat_timeout_seconds) || 60
+      }
+    }
+  } catch { /* 保持默认值 */ }
+}
+
+// 保存系统配置('Nh' 格式 → 数字小时)
+async function handleSaveSystemConfig() {
+  sysLoading.value = true
+  try {
+    const hours = parseInt(sysSettings.value.cleanupInterval) || 24
+    await settingsApi.saveSystemConfig({
+      cleanup_interval_hours: hours,
+      default_retention_days: sysSettings.value.defaultRetention,
+      heartbeat_timeout_seconds: sysSettings.value.heartbeatTimeout
+    })
+    message.success('设置已保存')
+  } catch { message.error('保存失败') }
+  finally { sysLoading.value = false }
+}
 
 const dbStatus = ref<DbStatus>({ file_size: '--', total_keys: 0, active_keys_24h: 0, history_count: 0 })
 
@@ -526,7 +557,7 @@ async function handleRestore({ file }: { file: UploadFileInfo }) {
   } catch { message.error('恢复失败，请检查文件格式') }
 }
 
-onMounted(() => { loadUsers(); loadTokens(); loadSessions(); loadDbStatus(); loadTwofaStatus() })
+onMounted(() => { loadUsers(); loadTokens(); loadSessions(); loadDbStatus(); loadTwofaStatus(); loadSystemConfig() })
 </script>
 
 <style scoped>

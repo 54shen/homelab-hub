@@ -227,6 +227,9 @@ def history_trend(
         if parsed is not None:
             if not kind:
                 kind = parsed[0]
+            elif parsed[0] != kind:
+                # 格式不一致的行(数字 vs 时长 vs 时间戳)跳过,避免混图
+                continue
             points.append(TrendPoint(
                 changed_at=changed_at,
                 value=parsed[1],
@@ -325,7 +328,8 @@ def export_history(
     from fastapi.responses import StreamingResponse
     import io, csv
 
-    q = _base_query(db.query(KvHistory), key, search, source, start, end)
+    # 参数顺序与 _base_query(q, key, search, prefix, suffix, source, start, end) 严格对应
+    q = _base_query(db.query(KvHistory), key, search, None, None, source, start, end)
     rows = q.order_by(KvHistory.changed_at.desc()).all()
 
     buf = io.StringIO()

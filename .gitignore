@@ -1,7 +1,7 @@
 # 环境变量（含敏感信息，切勿提交）
 .env
 frontend/.env
-
+.claude
 # Python
 .venv/
 __pycache__/
@@ -34,3 +34,15 @@ agent_config.jsonc
 .DS_Store
 Thumbs.db
 *.log
+
+# 测试
+backend/tests/.test_shared.db
+backend/tests/__pycache__/
+backend/htmlcov/
+backend/.coverage
+.pytest_cache/
+frontend/coverage/
+frontend/.vitest/
+
+# 测试报告(由 /unit-test 技能自动生成)
+测试报告.md

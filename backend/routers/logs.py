@@ -27,7 +27,8 @@ def list_logs(
 
     total = q.count()
     items = q.order_by(SystemLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
-    return SystemLogListOut(items=[SystemLogOut.from_orm(r) for r in items], total=total)
+    # from_orm 在 pydantic 2.13+ 已不可用,改用 model_validate(依赖 schemas 里的 from_attributes 配置)
+    return SystemLogListOut(items=[SystemLogOut.model_validate(r) for r in items], total=total)
 
 
 @router.get("/logs/export")

@@ -23,6 +23,9 @@ def _set_kv_sync(req: KvSetRequest, db: Session):
 
     值无变化时完全静默：不写 history、不更新 entry。
     """
+    # autoflush=False 时,先 flush 让同一会话内刚写入的 key 对后续查询可见
+    # (否则批量写入中重复 key 会走"新建"分支 → UNIQUE 冲突)
+    db.flush()
     entry = db.query(KvEntry).filter(KvEntry.key == req.key).first()
     now_str = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -89,6 +92,20 @@ def list_kv(prefix: str | None = Query(None), db: Session = Depends(get_db)):
     return q.order_by(KvEntry.updated_at.desc()).all()
 
 
+# 注意:导出路由必须注册在 GET /kv/{key} 之前,否则 key="export" 会被 {key} 抢先匹配
+@router.get("/kv/export")
+def export_kv(prefix: str | None = Query(None), db: Session = Depends(get_db)):
+    from fastapi.responses import StreamingResponse
+    import io
+    q = db.query(KvEntry)
+    if prefix:
+        q = q.filter(KvEntry.key.like(f"{prefix}%"))
+    data = [{c.name: getattr(r, c.name) for c in KvEntry.__table__.columns} for r in q.all()]
+    buf = io.BytesIO(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
+    return StreamingResponse(buf, media_type="application/json",
+                             headers={"Content-Disposition": "attachment; filename=kv_export.json"})
+
+
 @router.get("/kv/{key}", response_model=KvEntryOut)
 def get_kv(key: str, db: Session = Depends(get_db)):
     entry = db.query(KvEntry).filter(KvEntry.key == key).first()
@@ -118,9 +135,6 @@ async def set_kv(req: KvSetRequest, db: Session = Depends(get_db), token=Depends
     # 只有值真正变化时才广播 WS（静态 key 的重复上报不会触发前端更新）
     if changed:
         await broadcast("kv.changed", {"key": req.key, "value": str(req.value), "old_value": old_value, "source": req.source, "changed_at": now_str})
-    # DEBUG: 记录静态 key 的跳过情况
-    if not changed and "大爷的ROG" in req.key:
-        print(f"[DEBUG-KV] 跳过不变 key: {req.key} (value={str(req.value)[:30]})")
     return ApiResponse(success=True, message="OK")
 
 
@@ -146,19 +160,6 @@ def batch_delete_kv(req: KvBatchDeleteRequest, db: Session = Depends(get_db), to
         _delete_kv_sync(key, db)
     db.commit()
     return ApiResponse(success=True, message=f"已删除 {len(req.keys)} 个变量")
-
-
-@router.get("/kv/export")
-def export_kv(prefix: str | None = Query(None), db: Session = Depends(get_db)):
-    from fastapi.responses import StreamingResponse
-    import io
-    q = db.query(KvEntry)
-    if prefix:
-        q = q.filter(KvEntry.key.like(f"{prefix}%"))
-    data = [{c.name: getattr(r, c.name) for c in KvEntry.__table__.columns} for r in q.all()]
-    buf = io.BytesIO(json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8"))
-    return StreamingResponse(buf, media_type="application/json",
-                             headers={"Content-Disposition": "attachment; filename=kv_export.json"})
 
 
 @router.post("/kv/import", response_model=ApiResponse)
