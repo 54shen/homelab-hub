@@ -1,4 +1,6 @@
-import { defineConfig } from 'vitest/config'
+// 注意:此文件只从 'vite' import —— 测试配置在 vitest.config.ts(vitest 优先读取),
+// 这样服务器没装 vitest 时 vite dev/build 也能正常启动
+import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
@@ -11,13 +13,6 @@ export default defineConfig({
       }
     })
   ],
-  test: {
-    environment: 'jsdom',
-    coverage: {
-      // Node 18 不支持 v8 覆盖率所需的 node:inspector/promises,用 istanbul
-      provider: 'istanbul'
-    }
-  },
   server: {
     host: '0.0.0.0',
     port: 5173,
