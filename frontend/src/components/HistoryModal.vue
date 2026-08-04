@@ -41,13 +41,16 @@
       </div>
     </div>
 
-    <!-- 趋势图:值趋势(数值/时长/时间戳/状态)或上报频率,单击图表切换 -->
+    <!-- 趋势图:值趋势(数值/时长/时间戳/状态)或上报频率,单击切换;默认 48h,拖动/滚轮扩展更早 -->
     <div v-if="chartable" class="hm-chart">
       <TrendChart
         :points="chartMode === 'frequency' ? freqPoints : trendPoints"
-        :title="chartMode === 'frequency' ? `${titleLabel} 上报频率` : `${titleLabel} 趋势`"
+        :title="chartMode === 'frequency' ? `${titleLabel} 上报频率(粒度${freqStep}分钟)` : `${titleLabel} 趋势`"
         :plot-kind="chartMode === 'frequency' ? 'number' : plotKind"
+        :zoom="chartMode === 'frequency' ? freqZoom : valueZoom"
         @click="onChartClick"
+        @zoom="onChartZoom"
+        @reach-start="onNeedEarlier"
       />
     </div>
 
@@ -68,7 +71,7 @@
 
 <script setup lang="ts">
 import { computed, h, onUnmounted, ref, watch } from 'vue'
-import { NButton, NDataTable, NDatePicker, NEmpty, NModal, NSpace } from 'naive-ui'
+import { NButton, NDataTable, NDatePicker, NEmpty, NModal, NSpace, useMessage } from 'naive-ui'
 import { historyApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
 import { useFieldLabels } from '../composables/useFieldLabels'
@@ -78,6 +81,7 @@ import type { KvHistory, TrendPoint } from '../types'
 const props = defineProps<{ show: boolean; keyProp: string }>()
 defineEmits<{ 'update:show': [value: boolean] }>()
 const { labelOf } = useFieldLabels()
+const message = useMessage()
 
 // 字段映射后的标题(悬停显示原始 key)
 const titleLabel = computed(() => {
@@ -129,7 +133,43 @@ const trendPoints = ref<TrendPoint[]>([])
 const plotKind = ref('')
 // 图表模式:值趋势 ⇄ 上报频率(单击切换,与历史记录页一致)
 const chartMode = ref<'value' | 'frequency'>('value')
-const freqPoints = ref<TrendPoint[]>([])
+// 频率原始数据(分钟粒度)+ 按可视窗口跨度自适应聚合(1→5→10→30→60 分钟,与历史记录页一致)
+const freqMinutePoints = ref<TrendPoint[]>([])
+const freqStep = ref(1)
+function pickStep(win: { start: string; end: string } | null): number {
+  if (!win) return 1
+  const spanH = (new Date(win.end).getTime() - new Date(win.start).getTime()) / 3600000
+  if (spanH <= 3) return 1
+  if (spanH <= 12) return 5
+  if (spanH <= 24) return 10
+  if (spanH <= 48) return 30
+  return 60
+}
+function aggregateByStep(minutes: TrendPoint[], step: number): TrendPoint[] {
+  if (step <= 1) return minutes
+  const map = new Map<number, number>()
+  for (const p of minutes) {
+    const t = new Date(p.changed_at.replace(' ', 'T'))
+    const block = Math.floor(Math.floor(t.getTime() / 1000) / (step * 60)) * (step * 60)
+    map.set(block, (map.get(block) ?? 0) + p.value)
+  }
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([block, count]) => {
+    const d = new Date(block * 1000)
+    return {
+      changed_at: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:00`,
+      value: count,
+      raw: `${count} 次`,
+    }
+  })
+}
+const freqPoints = computed(() => aggregateByStep(freqMinutePoints.value, freqStep.value))
+// 各模式保存自己的缩放窗口,切换时恢复(与历史记录页一致)
+const valueZoom = ref<{ start: string; end: string } | null>(null)
+const freqZoom = ref<{ start: string; end: string } | null>(null)
+// 拖动到最早数据边界 → 自动向前扩展 24h
+const earlierLoading = ref(false)
+const earliestReached = ref(false)
 // 有值趋势 或 有频率数据 → 显示图表;纯字符串值(如普通文本)直接显示上报频率
 const chartable = computed(() =>
   Boolean(plotKind.value) || trendPoints.value.length > 0 || freqPoints.value.length > 0
@@ -160,20 +200,25 @@ function parsePlotValue(v: unknown): { kind: string; value: number } | null {
   return null
 }
 
+function fmtDate(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
 async function loadTrend() {
   trendPoints.value = []
   plotKind.value = ''
   chartMode.value = 'value'
-  freqPoints.value = []
+  freqMinutePoints.value = []
+  freqStep.value = 1
+  earliestReached.value = false
   try {
     const params: { key: string; limit: number; start?: string; end?: string } = { key: props.keyProp, limit: 5000 }
-    // 未特意筛选时间时,默认只取最近 24 小时(避免全量传输)
+    // 未特意筛选时间时,默认取最近 48 小时(与图表默认窗口一致,可拖动扩展更早)
     if (filterStart.value) {
       params.start = new Date(filterStart.value).toLocaleString('sv-SE').replace('T', ' ')
     } else {
-      const d = new Date(Date.now() - 24 * 3600 * 1000)
-      const p = (n: number) => String(n).padStart(2, '0')
-      params.start = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+      params.start = fmtDate(new Date(Date.now() - 48 * 3600 * 1000))
     }
     if (filterEnd.value) params.end = new Date(filterEnd.value).toLocaleString('sv-SE').replace('T', ' ')
     const res = await historyApi.trend(params)
@@ -189,30 +234,75 @@ async function loadTrend() {
   } catch { /* 无趋势数据 */ }
 }
 
-// 上报频率数据(分钟粒度)
+// 上报频率数据(分钟粒度,默认最近 48 小时)
 async function loadFrequency() {
   try {
     const params: { key: string; start?: string; end?: string } = { key: props.keyProp }
     if (filterStart.value) params.start = new Date(filterStart.value).toLocaleString('sv-SE').replace('T', ' ')
+    else params.start = fmtDate(new Date(Date.now() - 48 * 3600 * 1000))
     if (filterEnd.value) params.end = new Date(filterEnd.value).toLocaleString('sv-SE').replace('T', ' ')
     const res = await historyApi.frequency(params)
-    freqPoints.value = (res.data ?? []).map((r: any) => ({
+    freqMinutePoints.value = (res.data ?? []).map((r: any) => ({
       changed_at: `${r.minute}:00`,
       value: r.count,
       raw: `${r.count} 次`,
     }))
-  } catch { freqPoints.value = [] }
+  } catch { freqMinutePoints.value = [] }
 }
 
-// 单击图表切换 值趋势 ⇄ 上报频率(与历史记录页交互一致)
-function onChartClick() {
+// 单击图表切换 值趋势 ⇄ 上报频率(窗口保持,与历史记录页交互一致)
+function onChartClick(win: { start: string; end: string } | null) {
   if (chartMode.value === 'value') {
+    valueZoom.value = win
+    freqZoom.value = win
+    freqStep.value = pickStep(win)
     chartMode.value = 'frequency'
     loadFrequency()
   } else if (plotKind.value) {
     // 值无法绘图时不允许切回(没有值趋势可看)
+    freqZoom.value = win
     chartMode.value = 'value'
   }
+}
+
+// 缩放窗口变化 → 重算频率粒度(computed 自动重新聚合)
+function onChartZoom(win: { start: string; end: string } | null) {
+  freqStep.value = pickStep(win)
+}
+
+// 拖动时间轴到最早数据边界 → 自动向前扩展 24 小时
+async function onNeedEarlier() {
+  if (earlierLoading.value || earliestReached.value) return
+  const isFreq = chartMode.value === 'frequency'
+  const pts = isFreq ? freqMinutePoints.value : trendPoints.value
+  if (pts.length === 0) return
+  const earliest = pts[0].changed_at
+  const startD = new Date(earliest.replace(' ', 'T'))
+  startD.setHours(startD.getHours() - 24)
+  const endD = new Date(earliest.replace(' ', 'T'))
+  endD.setSeconds(endD.getSeconds() - 1)
+  earlierLoading.value = true
+  try {
+    if (isFreq) {
+      const res = await historyApi.frequency({ key: props.keyProp, start: fmtDate(startD), end: fmtDate(endD) })
+      const newPts = (res.data ?? []).map((r: any) => ({ changed_at: `${r.minute}:00`, value: r.count, raw: `${r.count} 次` }))
+      if (newPts.length === 0) {
+        earliestReached.value = true
+        message.info('已到最早的数据,没有更早的记录')
+      } else {
+        freqMinutePoints.value = [...newPts, ...freqMinutePoints.value]
+      }
+    } else {
+      const res = await historyApi.trend({ key: props.keyProp, start: fmtDate(startD), end: fmtDate(endD), limit: 5000 })
+      if (res.data.points.length === 0) {
+        earliestReached.value = true
+        message.info('已到最早的数据,没有更早的记录')
+      } else {
+        trendPoints.value = [...res.data.points, ...trendPoints.value]
+      }
+    }
+  } catch { /* 加载失败保持现状 */ }
+  finally { earlierLoading.value = false }
 }
 
 const pagination = computed(() => ({
@@ -392,10 +482,10 @@ watch(() => props.show, (visible) => {
             })
           }
         }
-        // 频率模式实时更新:当前小时点 +1(无则追加新点)
+        // 频率模式实时更新:当前小时点 +1(无则追加新点,原始分钟数据)
         if (chartMode.value === 'frequency' && data.changed_at) {
           const hk = String(data.changed_at).slice(0, 13)  // 'YYYY-MM-DD HH'
-          const fpts = freqPoints.value
+          const fpts = freqMinutePoints.value
           const last = fpts[fpts.length - 1]
           if (last && last.changed_at.startsWith(hk)) {
             last.value++

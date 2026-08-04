@@ -27,11 +27,14 @@ vi.mock('../composables/useFieldLabels', () => ({
 vi.mock('../components/TrendChart.vue', () => ({
   default: defineComponent({
     name: 'TrendChart',
-    props: ['points', 'title', 'plotKind'],
-    emits: ['click'],
+    props: ['points', 'title', 'plotKind', 'zoom'],
+    emits: ['click', 'zoom', 'reach-start'],
     setup(props, { emit }) {
+      const win = { start: '2026-08-01 00:00:00', end: '2026-08-02 00:00:00' }
       return () => h('div', { class: 'trend-chart-stub' }, [
-        h('button', { class: 'toggle-chart', onClick: () => emit('click') }, '切换图表'),
+        h('button', { class: 'toggle-chart', onClick: () => emit('click', win) }, '切换图表'),
+        h('button', { class: 'zoom-chart', onClick: () => emit('zoom', win) }, '缩放'),
+        h('button', { class: 'reach-start', onClick: () => emit('reach-start') }, '到边界'),
         h('span', { class: 'chart-title' }, String(props.title || '')),
         h('span', { class: 'chart-plot-kind' }, String(props.plotKind || '')),
         h('span', { class: 'chart-points' }, String((props.points || []).length))
@@ -88,7 +91,8 @@ vi.mock('naive-ui', () => ({
       ])
     }
   }),
-  NEmpty: defineComponent({ props: ['description'], setup(props) { return () => h('div', { class: 'n-empty' }, props.description) } })
+  NEmpty: defineComponent({ props: ['description'], setup(props) { return () => h('div', { class: 'n-empty' }, props.description) } }),
+  useMessage: () => ({ success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() })
 }))
 
 import HistoryModal from './HistoryModal.vue'
@@ -195,6 +199,59 @@ describe('HistoryModal.vue', () => {
     expect(historyApiMock.frequency).toHaveBeenCalled()
     expect(wrapper.find('.chart-title').text()).toContain('上报频率')
     expect(wrapper.find('.chart-points').text()).toBe('1')
+  })
+
+  it('频率图缩放 → 粒度按窗口跨度自适应(24h → 10分钟)', async () => {
+    mockList()
+    historyApiMock.trend.mockResolvedValue({
+      data: { points: [{ changed_at: '2026-08-01 10:00:00', value: 20 }], kind: 'number' }
+    })
+    // 5 个不同小时的分钟点
+    historyApiMock.frequency.mockResolvedValue({ data: [
+      { minute: '2026-08-01 10:00', count: 1 },
+      { minute: '2026-08-01 10:05', count: 2 },
+      { minute: '2026-08-01 11:00', count: 3 },
+      { minute: '2026-08-01 12:00', count: 4 },
+      { minute: '2026-08-01 13:00', count: 5 },
+    ] })
+    const wrapper = mountModal()
+    await openModal(wrapper)
+    await flushPromises()
+
+    // 切到频率模式
+    await wrapper.find('.toggle-chart').trigger('click')
+    await flushPromises()
+    // 初始窗口 24h(start 00:00, end 次日 00:00)→ 粒度 10 分钟
+    expect(wrapper.find('.chart-title').text()).toContain('粒度10分钟')
+    // 10 分钟粒度:10:00 与 10:05 聚合为同一块(10:00 块 count=1+2=3)
+    const pts = (wrapper.findComponent({ name: 'TrendChart' }).props('points') as any[])
+    expect(pts).toHaveLength(4)
+    expect(pts[0].value).toBe(3)  // 10:00 块 = 1 + 2
+  })
+
+  it('拖动到最早边界 → 自动向前扩展 24h', async () => {
+    mockList()
+    historyApiMock.trend.mockResolvedValueOnce({
+      data: { points: [{ changed_at: '2026-08-01 10:00:00', value: 20 }], kind: 'number' }
+    }).mockResolvedValueOnce({
+      data: { points: [{ changed_at: '2026-08-01 09:00:00', value: 15 }], kind: 'number' }
+    })
+    historyApiMock.frequency.mockResolvedValue({ data: [] })
+    const wrapper = mountModal()
+    await openModal(wrapper)
+
+    // 模拟到达最早边界(最早点 2026-08-01 10:00:00)
+    await wrapper.find('.reach-start').trigger('click')
+    await flushPromises()
+    // 扩展请求:start = 最早点(08-01 10:00) - 24h,end = 最早点 - 1s
+    const trendCall = historyApiMock.trend.mock.calls.at(-1)![0]
+    expect(trendCall.start).toBe('2026-07-31 10:00:00')
+    expect(trendCall.end).toBe('2026-08-01 09:59:59')
+    // 扩展数据拼接在原有数据前面
+    const chart = wrapper.findComponent({ name: 'TrendChart' })
+    const pts = (chart.props('points') as any[])
+    expect(pts[0].changed_at).toBe('2026-08-01 09:00:00')
+    expect(pts).toHaveLength(2)
   })
 
   it('单击图表切换 值趋势 ⇄ 上报频率', async () => {

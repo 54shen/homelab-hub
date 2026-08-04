@@ -6,8 +6,9 @@ import type { TrendPoint } from '../types'
 const props = defineProps<{
   points: TrendPoint[]
   title?: string
-  plotKind?: string  // '' / 'number' / 'duration' / 'timestamp' 决定 y 轴与 tooltip 展示
+  plotKind?: string  // '' / 'number' / 'duration' / 'timestamp' / 'state' 决定 y 轴与 tooltip 展示
   zoom?: { start: string; end: string } | null  // 外部要恢复的 dataZoom 窗口(切模式时保持横轴比例)
+  defaultSpanHours?: number  // 首次渲染的默认时间窗口(小时),之后用户缩放/拖动不再重置
 }>()
 
 // 单击图表 → 携带当前 dataZoom 可视时间窗口(供频率视图等使用)
@@ -21,6 +22,8 @@ const emit = defineEmits<{
 
 const el = ref<HTMLDivElement | null>(null)
 let chart: echarts.ECharts | null = null
+// 首次渲染设置默认窗口(最近 N 小时),之后用户缩放/拖动不再重置
+let initialZoomSet = false
 
 // 当前可视窗口:由 dataZoom 百分比映射到数据点时间范围
 function currentWindow(): { start: string; end: string } | null {
@@ -124,6 +127,20 @@ function yAxisFormatter(v: number): string {
   return String(v)
 }
 
+// 时间轴缩放选项;首次渲染:默认窗口 = 最后 N 小时(defaultSpanHours,默认 48),
+// 之后用户缩放/拖动不再重置(可继续滚轮/拖动看更早)
+function dataZoomOpt(): any {
+  const dz: any = { type: 'inside', xAxisIndex: 0, filterMode: 'none' }
+  if (!initialZoomSet && props.points.length > 0) {
+    const span = (props.defaultSpanHours ?? 48) * 3600 * 1000
+    const lastT = new Date(props.points[props.points.length - 1].changed_at.replace(' ', 'T')).getTime()
+    dz.startValue = lastT - span
+    dz.endValue = lastT
+    initialZoomSet = true
+  }
+  return dz
+}
+
 function render() {
   if (!chart) return
   const isState = props.plotKind === 'state'
@@ -173,7 +190,7 @@ function render() {
       axisLabel: { formatter: yAxisFormatter },
     },
     // 时间轴缩放/平移:滚轮与双指缩放,拖拽平移,时间轴上滚动同样生效
-    dataZoom: [{ type: 'inside', xAxisIndex: 0, filterMode: 'none' }],
+    dataZoom: [dataZoomOpt()],
     series: [{
       type: 'line',
       showSymbol: false,
