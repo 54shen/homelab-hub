@@ -106,7 +106,19 @@ function formatStamp(sec: number): string {
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${hm}`
 }
 
+// 状态值(on/off 等原始字符串)→ 中文展示
+function stateLabel(raw: string | null): string {
+  if (raw == null) return ''
+  const v = raw.trim().toLowerCase()
+  const on = ['on', 'true', 'open', 'locked', 'home', 'playing', 'active']
+  const off = ['off', 'false', 'closed', 'unlocked', 'not_home', 'paused', 'idle']
+  if (on.includes(v)) return '开'
+  if (off.includes(v)) return '关'
+  return raw
+}
+
 function yAxisFormatter(v: number): string {
+  if (props.plotKind === 'state') return v >= 0.5 ? '开' : '关'
   if (props.plotKind === 'duration') return formatDuration(v)
   if (props.plotKind === 'timestamp') return formatStamp(v)
   return String(v)
@@ -114,6 +126,7 @@ function yAxisFormatter(v: number): string {
 
 function render() {
   if (!chart) return
+  const isState = props.plotKind === 'state'
   // 阶梯数据:每个变更点展开为「保持段终点(t, 旧值) + 跳变点(t, 新值)」。
   // 水平段严格水平(表示值一直未变),只有真正变化的瞬间由小曲率平滑过渡。
   // 数据带原始值,供 tooltip 展示(时长/时间戳等非纯数值格式)。
@@ -140,7 +153,8 @@ function render() {
       const last = params[params.length - 1]
       if (!last?.data) return ''
       const [t, _v, raw] = last.data
-      return `${String(t).replace('T', ' ')}<br/>${raw ?? _v}`
+      const label = isState ? stateLabel(raw ?? String(_v)) : (raw ?? _v)
+      return `${String(t).replace('T', ' ')}<br/>${label}`
     },
   }
   chart.setOption({
@@ -148,11 +162,14 @@ function render() {
     tooltip,
     grid: { left: 70, right: 25, top: 42, bottom: 32 },
     xAxis: { type: 'time' },
-    // 非时间戳型从 0 开始(值趋势/频率切换时 y 轴不跳);时间戳型保持压缩轴
+    // 非时间戳型从 0 开始(值趋势/频率切换时 y 轴不跳);时间戳型保持压缩轴;
+    // 状态图固定 0/1 双档(开/关)
     yAxis: {
       type: 'value',
       scale: props.plotKind === 'timestamp',
-      min: props.plotKind === 'timestamp' ? undefined : 0,
+      min: isState ? 0 : (props.plotKind === 'timestamp' ? undefined : 0),
+      max: isState ? 1 : undefined,
+      interval: isState ? 1 : undefined,
       axisLabel: { formatter: yAxisFormatter },
     },
     // 时间轴缩放/平移:滚轮与双指缩放,拖拽平移,时间轴上滚动同样生效
@@ -160,7 +177,9 @@ function render() {
     series: [{
       type: 'line',
       showSymbol: false,
-      smooth: 0.15,  // 小曲率:只在变化瞬间圆滑,保持段不弯曲
+      // 状态图:垂直阶梯线(开/关切换一目了然);其余保持小曲率平滑
+      step: isState ? 'end' : undefined,
+      smooth: isState ? false : 0.15,
       lineStyle: { width: 2, color: '#5B8DEF' },
       itemStyle: { color: '#5B8DEF' },
       data,

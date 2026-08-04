@@ -274,6 +274,10 @@ const varColumns = [
         return h('span', { style: 'font-size:12px;color:var(--text-secondary)' }, 'Enter 保存')
       }
       return h('span', { style: 'display:flex;gap:4px' }, [
+        // 历史(最常用)放在修改前面
+        h(NButton, { size: 'tiny', quaternary: true,
+          onClick: () => { historyKey.value = row.key; showHistory.value = true }
+        }, { default: () => '历史' }),
         h(NButton, { size: 'tiny', quaternary: true, onClick: () => startEdit(row) }, { default: () => '修改' }),
         h(NPopconfirm, {
           positiveText: '确认', negativeText: '取消',
@@ -281,10 +285,7 @@ const varColumns = [
         }, {
           trigger: () => h(NButton, { size: 'tiny', quaternary: true, style: 'color:#EF4444' }, { default: () => '删除' }),
           default: () => `确定要删除变量 "${row.key}" 吗？`
-        }),
-        h(NButton, { size: 'tiny', quaternary: true,
-          onClick: () => { historyKey.value = row.key; showHistory.value = true }
-        }, { default: () => '历史' })
+        })
       ])
     }
   }

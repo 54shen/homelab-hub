@@ -10,6 +10,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 const historyApiMock = vi.hoisted(() => ({
   list: vi.fn(),
   trend: vi.fn(),
+  frequency: vi.fn(),
   exportCsv: vi.fn()
 }))
 // 捕获 useWebSocket 注册的 on 回调,模拟服务器推送
@@ -27,7 +28,15 @@ vi.mock('../components/TrendChart.vue', () => ({
   default: defineComponent({
     name: 'TrendChart',
     props: ['points', 'title', 'plotKind'],
-    template: '<div class="trend-chart-stub"></div>'
+    emits: ['click'],
+    setup(props, { emit }) {
+      return () => h('div', { class: 'trend-chart-stub' }, [
+        h('button', { class: 'toggle-chart', onClick: () => emit('click') }, '切换图表'),
+        h('span', { class: 'chart-title' }, String(props.title || '')),
+        h('span', { class: 'chart-plot-kind' }, String(props.plotKind || '')),
+        h('span', { class: 'chart-points' }, String((props.points || []).length))
+      ])
+    }
   })
 }))
 
@@ -122,6 +131,7 @@ describe('HistoryModal.vue', () => {
     wsCleanupMock.mockReset()
     historyApiMock.list.mockResolvedValue({ data: { total: 0, items: [] } })
     historyApiMock.trend.mockResolvedValue({ data: { points: [], kind: '' } })
+    historyApiMock.frequency.mockResolvedValue({ data: [] })
     historyApiMock.exportCsv.mockResolvedValue({ data: 'csv' })
   })
 
@@ -165,11 +175,49 @@ describe('HistoryModal.vue', () => {
     expect(wsOnMock).toHaveBeenCalledTimes(1)
   })
 
-  it('无历史数据 → 显示占位', async () => {
+  it('无历史数据 → 表格自带空态,不再额外提示', async () => {
     const wrapper = mountModal()
     await openModal(wrapper)
-    expect(wrapper.find('.n-empty').text()).toContain('暂无历史记录')
+    // 修复:不再显示多余的"暂无历史记录"空态
+    expect(wrapper.find('.n-empty').exists()).toBe(false)
+    // 无任何数据时图表也不显示
     expect(wrapper.find('.trend-chart-stub').exists()).toBe(false)
+  })
+
+  it('值无法绘图(纯文本)→ 自动显示上报频率图', async () => {
+    mockList()
+    historyApiMock.trend.mockResolvedValue({ data: { points: [], kind: '' } })
+    historyApiMock.frequency.mockResolvedValue({ data: [{ minute: '2026-08-01 10:00', count: 3 }] })
+    const wrapper = mountModal()
+    await openModal(wrapper)
+    await flushPromises()
+    // 自动加载频率数据并以频率图展示
+    expect(historyApiMock.frequency).toHaveBeenCalled()
+    expect(wrapper.find('.chart-title').text()).toContain('上报频率')
+    expect(wrapper.find('.chart-points').text()).toBe('1')
+  })
+
+  it('单击图表切换 值趋势 ⇄ 上报频率', async () => {
+    mockList()
+    historyApiMock.trend.mockResolvedValue({
+      data: { points: [{ changed_at: '2026-08-01 10:00:00', value: 20 }], kind: 'number' }
+    })
+    const wrapper = mountModal()
+    await openModal(wrapper)
+    await flushPromises()
+    expect(wrapper.find('.chart-title').text()).toContain('趋势')
+    expect(historyApiMock.frequency).not.toHaveBeenCalled()
+
+    // 点击 → 切到上报频率
+    await wrapper.find('.toggle-chart').trigger('click')
+    await flushPromises()
+    expect(historyApiMock.frequency).toHaveBeenCalled()
+    expect(wrapper.find('.chart-title').text()).toContain('上报频率')
+
+    // 再点 → 切回值趋势
+    await wrapper.find('.toggle-chart').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.chart-title').text()).toContain('趋势')
   })
 
   it('WS 新变更 → 按时间倒序插入新行', async () => {
@@ -336,8 +384,8 @@ describe('HistoryModal.vue', () => {
     historyApiMock.trend.mockResolvedValue({ data: { points: [], kind: 'duration' } })
     const wrapper = mountModal()
     await openModal(wrapper)
-    // 无数据点时趋势图不渲染
-    expect(wrapper.find('.trend-chart-stub').exists()).toBe(false)
+    // 有可绘图格式即显示图表(无点时空图自带"暂无数值数据"提示)
+    expect(wrapper.find('.trend-chart-stub').exists()).toBe(true)
 
     // WS 推送时长值 → 解析为秒并插入(plotKind 相同才插入)
     const wsHandler = wsOnMock.mock.calls[0][0]
@@ -361,13 +409,16 @@ describe('HistoryModal.vue', () => {
     // '17h' 会被解析为 duration,与当前 number 视图不匹配 → 不插入
     wsHandler('kv.changed', { key: 'pc.cpu', value: '17h', changed_at: '2026-08-01 10:30:00' })
     await flushPromises()
-    expect(wrapper.find('.trend-chart-stub').exists()).toBe(false)
+    // 图表仍显示,但点数保持 0(不匹配的值被忽略)
+    const chart = wrapper.findComponent({ name: 'TrendChart' })
+    expect(chart.exists()).toBe(true)
+    expect((chart.props('points') as any[])).toHaveLength(0)
   })
 
-  it('列表加载失败 → 不崩溃,显示占位', async () => {
+  it('列表加载失败 → 不崩溃,无多余空态提示', async () => {
     historyApiMock.list.mockRejectedValue(new Error('offline'))
     const wrapper = mountModal()
     await openModal(wrapper)
-    expect(wrapper.find('.n-empty').text()).toContain('暂无历史记录')
+    expect(wrapper.find('.n-empty').exists()).toBe(false)
   })
 })

@@ -37,6 +37,14 @@ def _to_float(v: str | None):
 # 时长单位 → 秒
 _DURATION_UNITS = [("d", 86400), ("h", 3600), ("m", 60), ("s", 1)]
 
+# 状态值 → 阶梯图 0/1(设备开关、门窗、在线状态等,展示"何时开/何时关")
+_STATE_VALUES = {
+    "on": 1, "off": 0, "true": 1, "false": 0,
+    "open": 1, "closed": 0, "locked": 1, "unlocked": 0,
+    "home": 1, "not_home": 0, "playing": 1, "paused": 0,
+    "idle": 0, "active": 1,
+}
+
 
 def _parse_value(v):
     """将值解析为可绘图的数值。
@@ -57,6 +65,11 @@ def _parse_value(v):
             return ("number", f)
     except ValueError:
         pass
+
+    # 1.5) 状态值(on/off 等) → 阶梯图 0/1(设备开关/门窗/在线状态)
+    low = v.lower()
+    if low in _STATE_VALUES:
+        return ("state", float(_STATE_VALUES[low]))
 
     # 2) 时长:Nd Xh Ym Zs(单位可省略,顺序固定,至少一个单位)
     m = re.fullmatch(

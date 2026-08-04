@@ -41,12 +41,17 @@
       </div>
     </div>
 
-    <!-- 趋势图:可绘图格式(数值/时长/时间戳)时显示,WS 新数据实时更新 -->
+    <!-- 趋势图:值趋势(数值/时长/时间戳/状态)或上报频率,单击图表切换 -->
     <div v-if="chartable" class="hm-chart">
-      <TrendChart :points="trendPoints" :title="`${titleLabel} 趋势`" :plot-kind="plotKind" />
+      <TrendChart
+        :points="chartMode === 'frequency' ? freqPoints : trendPoints"
+        :title="chartMode === 'frequency' ? `${titleLabel} 上报频率` : `${titleLabel} 趋势`"
+        :plot-kind="chartMode === 'frequency' ? 'number' : plotKind"
+        @click="onChartClick"
+      />
     </div>
 
-    <!-- 表格 -->
+    <!-- 表格(空数据时表格自带空态,不再额外提示) -->
     <n-data-table
       :columns="columns"
       :data="items"
@@ -58,8 +63,6 @@
       @update:page="onPageChange($event)"
       @update:page-size="onPageSizeChange($event)"
     />
-
-    <n-empty v-if="!loading && items.length === 0" description="暂无历史记录" style="margin-top:40px" />
   </n-modal>
 </template>
 
@@ -124,7 +127,13 @@ const hasFilter = computed(() => !!(filterStart.value || filterEnd.value))
 // ---- 趋势图 ----
 const trendPoints = ref<TrendPoint[]>([])
 const plotKind = ref('')
-const chartable = computed(() => Boolean(plotKind.value) && trendPoints.value.length > 0)
+// 图表模式:值趋势 ⇄ 上报频率(单击切换,与历史记录页一致)
+const chartMode = ref<'value' | 'frequency'>('value')
+const freqPoints = ref<TrendPoint[]>([])
+// 有值趋势 或 有频率数据 → 显示图表;纯字符串值(如普通文本)直接显示上报频率
+const chartable = computed(() =>
+  Boolean(plotKind.value) || trendPoints.value.length > 0 || freqPoints.value.length > 0
+)
 
 // 解析值为可绘图数值(与后端 _parse_value 规则一致:数值/时长/时间戳)
 function parsePlotValue(v: unknown): { kind: string; value: number } | null {
@@ -154,6 +163,8 @@ function parsePlotValue(v: unknown): { kind: string; value: number } | null {
 async function loadTrend() {
   trendPoints.value = []
   plotKind.value = ''
+  chartMode.value = 'value'
+  freqPoints.value = []
   try {
     const params: { key: string; limit: number; start?: string; end?: string } = { key: props.keyProp, limit: 5000 }
     // 未特意筛选时间时,默认只取最近 24 小时(避免全量传输)
@@ -169,8 +180,39 @@ async function loadTrend() {
     if (res.data) {
       trendPoints.value = res.data.points
       plotKind.value = res.data.kind || ''
+      // 值无法绘图(纯文本/on-off 之外的格式)→ 直接显示上报频率
+      if (!plotKind.value) {
+        chartMode.value = 'frequency'
+        loadFrequency()
+      }
     }
   } catch { /* 无趋势数据 */ }
+}
+
+// 上报频率数据(分钟粒度)
+async function loadFrequency() {
+  try {
+    const params: { key: string; start?: string; end?: string } = { key: props.keyProp }
+    if (filterStart.value) params.start = new Date(filterStart.value).toLocaleString('sv-SE').replace('T', ' ')
+    if (filterEnd.value) params.end = new Date(filterEnd.value).toLocaleString('sv-SE').replace('T', ' ')
+    const res = await historyApi.frequency(params)
+    freqPoints.value = (res.data ?? []).map((r: any) => ({
+      changed_at: `${r.minute}:00`,
+      value: r.count,
+      raw: `${r.count} 次`,
+    }))
+  } catch { freqPoints.value = [] }
+}
+
+// 单击图表切换 值趋势 ⇄ 上报频率(与历史记录页交互一致)
+function onChartClick() {
+  if (chartMode.value === 'value') {
+    chartMode.value = 'frequency'
+    loadFrequency()
+  } else if (plotKind.value) {
+    // 值无法绘图时不允许切回(没有值趋势可看)
+    chartMode.value = 'value'
+  }
 }
 
 const pagination = computed(() => ({
@@ -348,6 +390,18 @@ watch(() => props.show, (visible) => {
               value: parsed.value,
               raw: String(data.value),
             })
+          }
+        }
+        // 频率模式实时更新:当前小时点 +1(无则追加新点)
+        if (chartMode.value === 'frequency' && data.changed_at) {
+          const hk = String(data.changed_at).slice(0, 13)  // 'YYYY-MM-DD HH'
+          const fpts = freqPoints.value
+          const last = fpts[fpts.length - 1]
+          if (last && last.changed_at.startsWith(hk)) {
+            last.value++
+            last.raw = `${last.value} 次`
+          } else if (hk) {
+            fpts.push({ changed_at: `${hk}:00`, value: 1, raw: '1 次' })
           }
         }
       }

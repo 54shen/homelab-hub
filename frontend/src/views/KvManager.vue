@@ -247,8 +247,9 @@ const columns = [
     title: '操作', key: 'actions', width: 160,
     render(row: KvEntry) {
       return h('div', { style: 'display:flex;gap:4px' }, [
-        h(NButton, { size: 'tiny', quaternary: true, onClick: () => openEditModal(row) }, { default: () => '编辑' }),
+        // 历史(最常用)放在修改前面
         h(NButton, { size: 'tiny', quaternary: true, onClick: () => { historyKey.value = row.key; showHistory.value = true } }, { default: () => '历史' }),
+        h(NButton, { size: 'tiny', quaternary: true, onClick: () => openEditModal(row) }, { default: () => '编辑' }),
         h(NPopconfirm, {
           onPositiveClick: () => handleDelete(row.key)
         }, {

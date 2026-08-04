@@ -181,6 +181,33 @@ describe('TrendChart.vue', () => {
     expect(wrapper.emitted('reach-start')).toBeUndefined()
   })
 
+  it('plotKind=state 时渲染开关阶梯图(y 轴 0/1 + 垂直阶梯)', async () => {
+    const wrapper = mountChart({
+      points: [{ changed_at: '2026-08-01 10:00:00', value: 1, raw: 'on' }],
+      plotKind: 'state'
+    })
+    await flushPromises()
+    const opt = lastOption()
+    // y 轴固定 0/1 两档
+    expect(opt.yAxis.min).toBe(0)
+    expect(opt.yAxis.max).toBe(1)
+    expect(opt.yAxis.interval).toBe(1)
+    // 垂直阶梯线(开关切换一目了然)
+    expect(opt.series[0].step).toBe('end')
+    expect(opt.series[0].smooth).toBe(false)
+    // y 轴标签:0 → 关,1 → 开
+    expect(opt.yAxis.axisLabel.formatter(0)).toBe('关')
+    expect(opt.yAxis.axisLabel.formatter(1)).toBe('开')
+  })
+
+  it('plotKind=number 时保持平滑曲线(不受 state 影响)', async () => {
+    const wrapper = mountChart({ plotKind: 'number' })
+    await flushPromises()
+    const opt = lastOption()
+    expect(opt.series[0].step).toBeUndefined()
+    expect(opt.series[0].smooth).toBe(0.15)
+  })
+
   it('外部传入 zoom → dispatchAction 恢复缩放窗口', async () => {
     const wrapper = mountChart()
     await flushPromises()

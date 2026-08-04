@@ -44,6 +44,28 @@ def test_parse_value_rejects_garbage():
     assert _parse_value("nan") is None
 
 
+def test_parse_value_state():
+    """状态值(on/off 等)→ 阶梯图 0/1,展示设备何时开/何时关"""
+    assert _parse_value("on") == ("state", 1.0)
+    assert _parse_value("OFF") == ("state", 0.0)
+    assert _parse_value("open") == ("state", 1.0)
+    assert _parse_value("closed") == ("state", 0.0)
+    assert _parse_value("home") == ("state", 1.0)
+    assert _parse_value("not_home") == ("state", 0.0)
+    assert _parse_value("true") == ("state", 1.0)
+    # 非状态值不受影响
+    assert _parse_value("未知") is None
+    assert _parse_value("23.5") == ("number", 23.5)
+
+
+def test_chart_kind_state():
+    assert _chart_kind(["on", "off", "on"]) == "state"
+    assert _chart_kind(["true", "false"]) == "state"
+    # 状态值与数值混用 → 格式不一致,不绘图
+    assert _chart_kind(["on", "1"]) == ""
+    assert _chart_kind(["on", "未知"]) == ""
+
+
 def test_chart_kind_consistency():
     assert _chart_kind(["1", "2.5", "3"]) == "number"
     assert _chart_kind(["1h", "2m"]) == "duration"
@@ -124,6 +146,30 @@ def test_history_trend(client, admin_headers):
     # 格式不一致的时长行被过滤,避免数字和时长混画
     assert [p["value"] for p in body["points"]] == [1.0, 2.5]
     assert body["count"] == 2
+
+
+def test_history_trend_state_kind(client, admin_headers):
+    """on/off 开关值 → 阶梯图数据(0/1 + 原始值)"""
+    _seed(client, admin_headers, [
+        dict(key="s.switch", old_value="on", new_value="off", changed_at="2026-08-01 10:00:00"),
+        dict(key="s.switch", old_value="off", new_value="on", changed_at="2026-08-01 10:05:00"),
+    ])
+    r = client.get("/api/history/trend", params={"key": "s.switch"}, headers=admin_headers)
+    body = r.json()
+    assert body["kind"] == "state"
+    assert [p["value"] for p in body["points"]] == [0.0, 1.0]
+    assert body["points"][0]["raw"] == "off"
+    assert body["points"][1]["raw"] == "on"
+
+
+def test_history_keys_state_plot_kind(client, admin_headers):
+    _seed(client, admin_headers, [
+        dict(key="sw.v", old_value="on", new_value="off", source="ha", changed_at="2026-08-01 10:00:00"),
+    ])
+    r = client.get("/api/history/keys", headers=admin_headers)
+    keys = {k["key"]: k for k in r.json()}
+    assert keys["sw.v"]["plot_kind"] == "state"
+    assert keys["sw.v"]["is_numeric"] is False
 
 
 def test_history_trend_requires_key(client, admin_headers):
