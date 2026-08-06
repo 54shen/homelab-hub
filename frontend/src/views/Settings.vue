@@ -30,18 +30,35 @@
       </div>
     </n-card>
 
-    <!-- TOTP 展示器:每个用户自己的密钥,仪表盘实时展示验证码 -->
+    <!-- TOTP 展示器:每个用户自己的密钥,已配置则展示验证码(点击复制)+修改 -->
     <n-card title="TOTP 展示器" size="small" style="margin-bottom:16px">
       <div class="login-mode-row">
         <div class="login-mode-desc">
-          <p>录入你自己的 <b>Base32 TOTP 密钥</b>(如路由器 / 服务 / 网站的二次验证密钥),仪表盘将实时展示当前 6 位验证码,免掏手机。</p>
-          <p style="font-size:12px;color:var(--text-secondary);margin-top:6px">
-            每个用户相互独立、相互隔离;密钥单独保存,不作为 KV 变量;每 30 秒自动刷新;
-            <b v-if="isAdmin">管理员可在下方「用户管理」查看所有用户的 TOTP。</b>
-            <span v-else>管理员可在用户管理中查看你的配置。</span>
-          </p>
+          <template v-if="totpConfigured && !totpEditing">
+            <p>当前验证码 <b style="font-size:13px;color:var(--text-secondary)">(点击复制)</b></p>
+            <span
+              class="totp-view-code"
+              style="font-size:40px;font-weight:700;letter-spacing:6px;font-family:Consolas,monospace;color:var(--color-info);cursor:pointer;line-height:1.3"
+              @click="copyTotpViewCode"
+            >{{ totpViewCode }}</span>
+            <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">
+              每 30 秒自动刷新;每个用户相互独立、相互隔离;密钥仅服务器保存,前端不可见。
+              <b v-if="isAdmin">管理员可在下方「用户管理」查看所有用户的验证码。</b>
+            </p>
+          </template>
+          <template v-else>
+            <p>录入你自己的 <b>Base32 TOTP 密钥</b>(如路由器 / 服务 / 网站的二次验证密钥),仪表盘将实时展示当前 6 位验证码,免掏手机。</p>
+            <p style="font-size:12px;color:var(--text-secondary);margin-top:6px">
+              每个用户相互独立、相互隔离;密钥仅服务器保存,前端不可见,录入后不可回读;
+              <b v-if="isAdmin">管理员可在下方「用户管理」查看所有用户的验证码。</b>
+              <span v-else>管理员可在用户管理中查看你的验证码。</span>
+            </p>
+          </template>
         </div>
-        <div style="display:flex;gap:8px;align-items:center">
+        <div v-if="totpConfigured && !totpEditing" style="display:flex;gap:8px;align-items:center">
+          <n-button size="small" secondary @click="totpEditing = true">修改</n-button>
+        </div>
+        <div v-else style="display:flex;gap:8px;align-items:center">
           <n-input
             v-model:value="totpSecretInput"
             placeholder="输入 Base32 密钥"
@@ -49,7 +66,10 @@
             style="width:240px"
             @keyup.enter="saveTotpSecret"
           />
-          <n-button size="small" type="primary" :loading="totpSaving" @click="saveTotpSecret">保存</n-button>
+          <n-button size="small" type="primary" :loading="totpSaving" @click="saveTotpSecret">
+            {{ totpConfigured ? '保存修改' : '保存' }}
+          </n-button>
+          <n-button v-if="totpEditing" size="small" quaternary @click="cancelTotpEdit">取消</n-button>
         </div>
       </div>
     </n-card>
@@ -146,21 +166,15 @@
         />
         <n-empty v-else description="暂无用户" style="margin:20px 0" />
 
-        <!-- 管理员查看用户 TOTP 弹窗 -->
+        <!-- 管理员查看用户 TOTP 弹窗(仅验证码,密钥不可见) -->
         <n-modal v-model:show="totpViewVisible" preset="card" :title="`${totpViewData.username} 的 TOTP`" style="width:420px">
           <template v-if="totpViewData.configured">
-            <div style="display:flex;flex-direction:column;gap:14px">
-              <div>
-                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">当前验证码(点击复制)</div>
-                <span
-                  style="font-size:34px;font-weight:700;letter-spacing:5px;font-family:Consolas,monospace;color:var(--color-info);cursor:pointer"
-                  @click="copyTotpViewCode"
-                >{{ totpViewData.code }}</span>
-              </div>
-              <div>
-                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Base32 密钥</div>
-                <code style="font-size:13px;word-break:break-all">{{ totpViewData.secret }}</code>
-              </div>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div style="font-size:12px;color:var(--text-secondary)">当前验证码(点击复制)</div>
+              <span
+                style="font-size:40px;font-weight:700;letter-spacing:6px;font-family:Consolas,monospace;color:var(--color-info);cursor:pointer;line-height:1.2"
+                @click="copyUserTotpViewCode"
+              >{{ totpViewData.code }}</span>
             </div>
           </template>
           <n-empty v-else description="该用户未配置 TOTP" />
@@ -250,7 +264,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import {
   NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem, NEmpty,
   NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSpace, NSwitch,
@@ -264,9 +278,21 @@ import type { DbStatus } from '../types'
 
 const message = useMessage()
 
-// ---- TOTP 展示器:管理员录入密钥(仪表盘实时展示验证码) ----
+// ---- TOTP 展示器:每个用户自己的密钥(已配置 → 展示验证码可复制 + 修改) ----
 const totpSecretInput = ref('')
 const totpSaving = ref(false)
+const totpConfigured = ref(false)  // 是否已配置(密钥不可回读,仅状态)
+const totpEditing = ref(false)     // 修改模式:重新录入密钥覆盖
+const totpViewCode = ref('')       // 当前验证码(5 秒轮询刷新)
+let totpTimer: ReturnType<typeof setInterval> | null = null
+
+async function loadTotpStatus() {
+  try {
+    const r = await dashboardApi.totpCode()
+    totpConfigured.value = !!r.data?.configured
+    if (r.data?.configured) totpViewCode.value = r.data.code ?? ''
+  } catch { /* 忽略 */ }
+}
 
 async function saveTotpSecret() {
   const secret = totpSecretInput.value.trim()
@@ -279,12 +305,38 @@ async function saveTotpSecret() {
     await dashboardApi.totpSecret(secret)
     message.success('TOTP 展示器已更新')
     totpSecretInput.value = ''
+    totpEditing.value = false
+    await loadTotpStatus()
   } catch (e: any) {
     message.error(e?.response?.data?.detail || '保存失败')
   } finally {
     totpSaving.value = false
   }
 }
+
+function cancelTotpEdit() {
+  totpEditing.value = false
+  totpSecretInput.value = ''
+}
+
+async function copyTotpViewCode() {
+  if (!totpViewCode.value) return
+  try {
+    await navigator.clipboard.writeText(totpViewCode.value)
+    message.success('验证码已复制')
+  } catch {
+    message.error('复制失败')
+  }
+}
+
+onMounted(() => {
+  loadTotpStatus()
+  totpTimer = setInterval(loadTotpStatus, 5000)  // 验证码 30 秒轮换,5 秒刷新足够
+})
+
+onUnmounted(() => {
+  if (totpTimer) clearInterval(totpTimer)
+})
 
 // ---- 登录方式:仅验证码登录开关(全局,存服务端,防抖同步) ----
 const codeOnlyStr = useUISetting('auth_code_only', '0')
@@ -406,22 +458,18 @@ const userColumns = [
   }
 ]
 
-// ---- 管理员查看用户 TOTP(密钥 + 当前验证码) ----
+// ---- 管理员查看用户 TOTP(仅当前验证码,密钥永不下发) ----
 const totpViewVisible = ref(false)
-const totpViewData = ref<{ username: string; configured: boolean; secret: string; code: string }>({
-  username: '', configured: false, secret: '', code: ''
+const totpViewData = ref<{ username: string; configured: boolean; code: string }>({
+  username: '', configured: false, code: ''
 })
 
 async function viewUserTotp(row: UserEntry & { has_totp?: boolean }) {
   try {
-    const [sec, code] = await Promise.all([
-      dashboardApi.totpSecretInfo(row.id),
-      dashboardApi.totpCode(row.id),
-    ])
+    const code = await dashboardApi.totpCode(row.id)
     totpViewData.value = {
       username: row.username,
-      configured: !!sec.data?.configured,
-      secret: sec.data?.secret || '',
+      configured: !!code.data?.configured,
       code: code.data?.code || '',
     }
     totpViewVisible.value = true
@@ -430,7 +478,7 @@ async function viewUserTotp(row: UserEntry & { has_totp?: boolean }) {
   }
 }
 
-async function copyTotpViewCode() {
+async function copyUserTotpViewCode() {
   if (!totpViewData.value.code) return
   try {
     await navigator.clipboard.writeText(totpViewData.value.code)

@@ -101,7 +101,7 @@ def test_totp_code_matches_pyotp(client, admin_headers):
     assert body["configured"] is True
     assert body["code"] == pyotp.TOTP(secret).now()
     assert len(body["code"]) == 6
-    assert 0 <= body["period_remaining"] < 30
+    assert 0 < body["period_remaining"] <= 30
 
 
 def test_totp_secret_invalid(client, admin_headers):
@@ -143,26 +143,26 @@ def test_totp_admin_can_view_others(client, admin_headers):
     assert client.put("/api/dashboard/totp-secret", json={"secret": secret_b},
                       params={"user_id": u3_id}, headers=admin_headers).status_code == 200
 
-    # admin 查看其验证码与密钥
+    # admin 查看其验证码(密钥永不下发,前端无任何获取密钥的接口)
     code_body = client.get("/api/dashboard/totp-code", params={"user_id": u3_id}, headers=admin_headers).json()
     assert code_body["configured"] is True
     assert code_body["code"] == pyotp.TOTP(secret_b).now()
-    secret_body = client.get("/api/dashboard/totp-secret", params={"user_id": u3_id}, headers=admin_headers).json()
-    assert secret_body["secret"] == secret_b
+    assert "secret" not in code_body
 
     # 用户列表标记 has_totp
     assert next(u["has_totp"] for u in client.get("/api/users", headers=admin_headers).json() if u["username"] == "tu3") is True
 
 
-def test_totp_own_secret_viewable(client, admin_headers):
-    """查看自己的密钥 → 200(用户管理弹窗的查看按钮自己也能用)"""
+def test_totp_secret_not_exposed(client, admin_headers):
+    """密钥不可获取:GET /dashboard/totp-secret 已移除(404)"""
     import pyotp
     secret = pyotp.random_base32()
     assert client.put("/api/dashboard/totp-secret", json={"secret": secret},
                       headers=admin_headers).status_code == 200
-    body = client.get("/api/dashboard/totp-secret", headers=admin_headers).json()
-    assert body["configured"] is True
-    assert body["secret"] == secret
+    r = client.get("/api/dashboard/totp-secret", headers=admin_headers)
+    assert r.status_code in (404, 405)  # 路由不存在
+    # 验证码接口也不携带 secret
+    assert "secret" not in client.get("/api/dashboard/totp-code", headers=admin_headers).json()
 
 
 # ---- 旧表迁移:totp_display 缺 user_id 列(单行全局版升级) ----

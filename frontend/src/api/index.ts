@@ -126,14 +126,9 @@ export const dashboardApi = {
     return http.get<{ configured: boolean; code?: string; period_remaining?: number }>(
       '/dashboard/totp-code', { params: userId ? { user_id: userId } : {} })
   },
-  /** TOTP 展示器:设置自己的密钥(admin 可代其他用户设置) */
+  /** TOTP 展示器:设置自己的密钥(admin 可代其他用户设置;密钥永不回读) */
   totpSecret(secret: string, userId?: number) {
     return http.put<ApiResponse>('/dashboard/totp-secret', { secret }, { params: userId ? { user_id: userId } : {} })
-  },
-  /** TOTP 展示器:查看密钥(自己或 admin 查看别人) */
-  totpSecretInfo(userId?: number) {
-    return http.get<{ configured: boolean; secret?: string }>(
-      '/dashboard/totp-secret', { params: userId ? { user_id: userId } : {} })
   }
 }
 

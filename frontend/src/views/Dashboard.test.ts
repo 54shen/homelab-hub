@@ -16,9 +16,13 @@ const routerPush = vi.hoisted(() => vi.fn())
 const msgSuccess = vi.hoisted(() => vi.fn())
 
 vi.mock('../api', () => ({ dashboardApi: dashboardApiMock, deviceApi: deviceApiMock }))
-vi.mock('../composables/useWebSocket', () => ({
-  useWebSocket: () => ({ on: wsOnMock, wsConnected: { value: false }, wsRealtime: { value: true } })
-}))
+vi.mock('../composables/useWebSocket', async () => {
+  // wsConnected 必须是真 ref:模板里直接使用会自动解包(普通对象会恒为 truthy)
+  const { ref } = await import('vue')
+  return {
+    useWebSocket: () => ({ on: wsOnMock, wsConnected: ref(false), wsRealtime: ref(true) })
+  }
+})
 vi.mock('../composables/useFieldLabels', () => ({
   useFieldLabels: () => ({ labelOf: (k: string) => k })
 }))
@@ -155,8 +159,9 @@ describe('Dashboard.vue', () => {
     expect(cards[0].text()).toContain('3')
     expect(cards[0].text()).toContain('/ 5')
     expect(cards[1].text()).toContain('设备 / 变量')
-    expect(cards[2].text()).toContain('网络状态')
-    expect(cards[2].text()).toContain('正常')
+    // 实时连接卡片 = WS 连接状态(mock wsConnected=false → 已断开)
+    expect(cards[2].text()).toContain('实时连接')
+    expect(cards[2].text()).toContain('已断开')
     // TOTP 卡片:未配置时提示
     expect(wrapper.find('.totp-card').exists()).toBe(true)
     expect(wrapper.find('.totp-card').text()).toContain('未配置')

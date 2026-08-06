@@ -26,20 +26,17 @@
       />
       <StatCard
         icon="wifi-outline"
-        icon-bg="rgba(245, 158, 11, 0.1)"
-        icon-color="#F59E0B"
-        :primary="stats.network_status === 'online' ? '正常' : '异常'"
+        :icon-bg="wsConnected ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)'"
+        :icon-color="wsConnected ? '#22C55E' : '#EF4444'"
+        :primary="wsConnected ? '已连接' : '已断开'"
         :secondary="stats.public_ip"
-        label="网络状态"
+        label="实时连接"
       />
       <!-- TOTP 验证码实时展示(自己的密钥,点击复制;在 设置 → TOTP 展示器 录入) -->
       <div class="totp-card">
         <span class="totp-label">TOTP 验证码</span>
         <template v-if="totpConfigured">
           <span class="totp-code" title="点击复制验证码" @click="copyTotpCode">{{ totpCode }}</span>
-          <div class="totp-progress">
-            <div class="totp-fill" :style="{ width: (totpRemaining / 30 * 100) + '%' }"></div>
-          </div>
         </template>
         <template v-else>
           <span class="totp-empty">未配置</span>
@@ -364,8 +361,8 @@ async function loadData() {
   }
 }
 
-// ---- WebSocket 实时更新 ----
-const { on } = useWebSocket()
+// ---- WebSocket 实时更新(wsConnected = 实时连接状态,仪表盘"实时连接"卡片) ----
+const { on, wsConnected } = useWebSocket()
 let cleanupWs: (() => void) | null = null
 
 onMounted(async () => {
@@ -504,16 +501,19 @@ onUnmounted(() => {
 }
 .ha-count { font-size: 12px; color: var(--text-secondary); }
 
-/* ── TOTP 验证码卡片 ── */
+/* ── TOTP 验证码卡片 ──
+   与 StatCard 同高同风格:label 顶部 + 验证码垂直居中,不再有进度条撑高 */
 .totp-card {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 10px;
   background: var(--bg-card);
   border: 1px solid var(--border-card);
   border-radius: var(--radius-lg);
   padding: 20px;
   box-shadow: var(--shadow-card);
+  min-height: 104px;
 }
 .totp-label {
   font-size: 14px;
@@ -521,29 +521,18 @@ onUnmounted(() => {
   color: var(--text-secondary);
 }
 .totp-code {
-  font-size: 40px;
+  font-size: 34px;
   font-weight: 700;
-  letter-spacing: 6px;
+  letter-spacing: 5px;
   font-family: 'Consolas', 'Courier New', monospace;
   color: var(--color-info);
   line-height: 1;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
 }
 .totp-empty {
   font-size: 15px;
   color: var(--text-secondary);
-}
-.totp-progress {
-  height: 4px;
-  background: var(--border-light);
-  border-radius: var(--radius-full);
-  overflow: hidden;
-}
-.totp-fill {
-  height: 100%;
-  background: var(--color-info);
-  border-radius: var(--radius-full);
-  transition: width 1s linear;
 }
 
 /* ── 剪切板卡片:固定在左上角占 2×2 设备位 ──

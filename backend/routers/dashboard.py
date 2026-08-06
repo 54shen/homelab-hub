@@ -77,21 +77,9 @@ def totp_code(request: Request, db: Session = Depends(get_db),
     return {
         "configured": True,
         "code": pyotp.TOTP(row.secret).now(),
-        "period_remaining": 30 - int(time.time() % 30),
+        # 整数秒取模:周期边界(余数 0)时正确返回 30(新周期刚开始的完整 30 秒)
+        "period_remaining": 30 - (int(time.time()) % 30),
     }
-
-
-@router.get("/dashboard/totp-secret")
-def get_totp_secret(request: Request, db: Session = Depends(get_db),
-                    user_id: int | None = None):
-    """查看 TOTP 密钥:自己或 admin 查看别人的(用户管理弹窗用)"""
-    target_id, err = _totp_target(request, db, user_id)
-    if err:
-        raise err
-    row = db.query(TotpDisplay).filter(TotpDisplay.user_id == target_id).first()
-    if not row or not row.secret:
-        return {"configured": False, "secret": ""}
-    return {"configured": True, "secret": row.secret}
 
 
 @router.put("/dashboard/totp-secret", response_model=ApiResponse)

@@ -10,7 +10,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 // http 默认导出(Settings 直接用它请求 /users /tokens /sessions /auth/password)
 const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() }))
 const authApiMock = vi.hoisted(() => ({ twofaStatus: vi.fn(), twofaSetup: vi.fn(), twofaConfirm: vi.fn(), twofaDisable: vi.fn() }))
-const dashboardApiMock = vi.hoisted(() => ({ dbStatus: vi.fn(), totpSecret: vi.fn(), totpSecretInfo: vi.fn(), totpCode: vi.fn() }))
+const dashboardApiMock = vi.hoisted(() => ({ dbStatus: vi.fn(), totpSecret: vi.fn(), totpCode: vi.fn() }))
 const settingsApiMock = vi.hoisted(() => ({ exportBackup: vi.fn(), restoreBackup: vi.fn() }))
 const qrMock = vi.hoisted(() => vi.fn(() => Promise.resolve('data:image/png;base64,QR')))
 const clipboardMock = vi.hoisted(() => vi.fn())
@@ -212,6 +212,7 @@ describe('Settings.vue', () => {
     httpMock.post.mockResolvedValue({ data: {} })
     httpMock.delete.mockResolvedValue({ data: {} })
     authApiMock.twofaSetup.mockResolvedValue({ data: { uri: 'otpauth://totp/SharedCenter:admin?secret=ABC123', secret: 'ABC123' } })
+  dashboardApiMock.totpCode.mockResolvedValue({ data: { configured: false } })
     authApiMock.twofaConfirm.mockResolvedValue({ data: {} })
     authApiMock.twofaDisable.mockResolvedValue({ data: {} })
     settingsApiMock.exportBackup.mockResolvedValue({ data: new Blob(['{}']) })
@@ -283,6 +284,7 @@ describe('Settings.vue', () => {
 
   it('2FA:启用流程(生成密钥/二维码 → 输入验证码确认)', async () => {
     authApiMock.twofaSetup.mockResolvedValue({ data: { uri: 'otpauth://totp/SharedCenter:admin?secret=ABC123', secret: 'ABC123' } })
+  dashboardApiMock.totpCode.mockResolvedValue({ data: { configured: false } })
     const wrapper = mountPage()
     await flushPromises()
     const twofaCard = cardByTitle(wrapper, '二次验证')
@@ -354,8 +356,7 @@ describe('Settings.vue', () => {
     expect((input.element as HTMLInputElement).value).toBe('')
   })
 
-  it('管理员查看用户 TOTP:点击查看 → 弹窗显示密钥与当前验证码', async () => {
-    dashboardApiMock.totpSecretInfo.mockResolvedValue({ data: { configured: true, secret: 'JBSWY3DPEHPK3PXP' } })
+  it('管理员查看用户 TOTP:点击查看 → 弹窗显示当前验证码(密钥不可见)', async () => {
     dashboardApiMock.totpCode.mockResolvedValue({ data: { configured: true, code: '654321', period_remaining: 15 } })
     const wrapper = mountPage()
     await flushPromises()
@@ -365,12 +366,39 @@ describe('Settings.vue', () => {
     await bobRow.findAll('button').find((b) => b.text().includes('查看'))!.trigger('click')
     await flushPromises()
 
-    expect(dashboardApiMock.totpSecretInfo).toHaveBeenCalledWith(5)
     expect(dashboardApiMock.totpCode).toHaveBeenCalledWith(5)
     const modal = wrapper.find('.n-modal')
     expect(modal.text()).toContain('bob 的 TOTP')
-    expect(modal.text()).toContain('JBSWY3DPEHPK3PXP')
     expect(modal.text()).toContain('654321')
+    expect(modal.text()).not.toContain('JBSWY3DPEHPK3PXP')  // 密钥永不下发
+  })
+
+  it('TOTP 展示器:已配置 → 默认展示验证码(可复制)+ 修改按钮', async () => {
+    dashboardApiMock.totpCode.mockResolvedValue({ data: { configured: true, code: '123456', period_remaining: 20 } })
+    const wrapper = mountPage()
+    await flushPromises()
+
+    const totpCard = cardByTitle(wrapper, 'TOTP 展示器')
+    // 默认展示验证码,无密钥、无输入框
+    expect(totpCard.text()).toContain('123456')
+    expect(totpCard.text()).not.toContain('JBSWY3DPEHPK3PXP')
+    expect(totpCard.find('input').exists()).toBe(false)
+    // 点击验证码 → 复制(用项目级 clipboardMock)
+    await totpCard.find('.totp-view-code').trigger('click')
+    await flushPromises()
+    expect(clipboardMock).toHaveBeenCalledWith('123456')
+    expect(msgSuccess).toHaveBeenCalledWith('验证码已复制')
+
+    // 点"修改" → 输入框出现 → 保存覆盖
+    await totpCard.findAll('button').find((b) => b.text().includes('修改'))!.trigger('click')
+    await flushPromises()
+    const input = totpCard.find('input')
+    expect(input.exists()).toBe(true)
+    await input.setValue('NEWSECRET1234')
+    await totpCard.findAll('button').find((b) => b.text().includes('保存修改'))!.trigger('click')
+    await flushPromises()
+    expect(dashboardApiMock.totpSecret).toHaveBeenCalledWith('NEWSECRET1234')
+    expect(msgSuccess).toHaveBeenCalledWith('TOTP 展示器已更新')
   })
 
   it('新增用户:校验 → 保存调用接口并关闭弹窗', async () => {
