@@ -35,6 +35,7 @@ import pyotp
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    _ensure_schema_compat()
     _ensure_admin_user()
     _ensure_clipboard()
     scheduler = init_scheduler()
@@ -45,6 +46,20 @@ async def lifespan(app: FastAPI):
     print("[Shared Center] 服务已启动")
     yield
     scheduler.shutdown(wait=False)
+
+
+def _ensure_schema_compat():
+    """轻量迁移:旧版 totp_display 表(单行全局密钥)缺少 user_id 列 → ALTER 补上(每用户版)。
+    create_all 不会给已存在的表加列,升级部署时必须手动补。"""
+    from sqlalchemy import inspect, text as sa_text
+    from database import engine
+    insp = inspect(engine)
+    if "totp_display" in insp.get_table_names():
+        cols = {c["name"] for c in insp.get_columns("totp_display")}
+        if "user_id" not in cols:
+            with engine.begin() as conn:
+                conn.execute(sa_text("ALTER TABLE totp_display ADD COLUMN user_id INTEGER"))
+            print("[Shared Center] 已迁移 totp_display 表(补充 user_id 列)")
 
 
 def _ensure_admin_user():

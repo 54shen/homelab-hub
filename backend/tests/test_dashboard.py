@@ -163,3 +163,36 @@ def test_totp_own_secret_viewable(client, admin_headers):
     body = client.get("/api/dashboard/totp-secret", headers=admin_headers).json()
     assert body["configured"] is True
     assert body["secret"] == secret
+
+
+# ---- 旧表迁移:totp_display 缺 user_id 列(单行全局版升级) ----
+
+def test_totp_display_schema_migration(client, admin_headers):
+    """旧版表(无 user_id 列)→ 迁移补列,接口不再 500"""
+    from sqlalchemy import inspect, text as sa_text
+    from database import engine
+    from main import _ensure_schema_compat
+
+    # 模拟旧版表结构:先删掉新表,手动建无 user_id 列的旧表
+    with engine.begin() as conn:
+        conn.execute(sa_text("DROP TABLE IF EXISTS totp_display"))
+        conn.execute(sa_text("CREATE TABLE totp_display (id INTEGER PRIMARY KEY, secret VARCHAR(128), updated_at VARCHAR(32))"))
+        conn.execute(sa_text("INSERT INTO totp_display (id, secret) VALUES (1, 'OLDGLOBAL')"))
+
+    # 迁移前:新代码查询 user_id 列 → 报错(线上表现为 500,TestClient 直接抛异常)
+    from sqlalchemy.exc import OperationalError
+    try:
+        client.get("/api/dashboard/totp-code", headers=admin_headers)
+        raise AssertionError("迁移前查询应报 no such column")
+    except OperationalError as e:
+        assert "no such column" in str(e)
+
+    # 执行迁移 → 列补上
+    _ensure_schema_compat()
+    cols = {c["name"] for c in inspect(engine).get_columns("totp_display")}
+    assert "user_id" in cols
+
+    # 迁移后:接口正常(旧全局行不属于任何用户 → 未配置)
+    r = client.get("/api/dashboard/totp-code", headers=admin_headers)
+    assert r.status_code == 200
+    assert r.json() == {"configured": False}
