@@ -35,6 +35,7 @@ import pyotp
 async def lifespan(app: FastAPI):
     init_db()
     _ensure_admin_user()
+    _ensure_clipboard()
     scheduler = init_scheduler()
     scheduler.add_job(cleanup_history, "interval", hours=CLEANUP_INTERVAL_HOURS, id="cleanup")
     # check_device_offline 只负责标记设备离线（UI 状态），告警触发改由心跳路径实时预约
@@ -65,6 +66,16 @@ def _ensure_admin_user():
             print(f"  API Token: {token_str}")
             print(f"  请尽快修改默认密码！")
             print(f"{'='*50}\n")
+    finally:
+        db.close()
+
+
+def _ensure_clipboard():
+    """确保剪切板内置设备 + key 存在（幂等）"""
+    from services.clipboard import ensure_clipboard
+    db = SessionLocal()
+    try:
+        ensure_clipboard(db)
     finally:
         db.close()
 

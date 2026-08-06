@@ -47,7 +47,10 @@ def test_list_and_prefix_filter(client, admin_headers):
         client.post("/api/kv", json={"key": k, "value": v}, headers=admin_headers)
 
     all_keys = {e["key"] for e in client.get("/api/list", headers=admin_headers).json()}
-    assert all_keys == {"a.one", "a.two", "b.one"}
+    # 列表包含写入的 key；启动时 lifespan 会创建内置剪切板 key（"剪切板.内容"），
+    # 因此不能做精确集合断言,只验证子集 + 内置 key 存在
+    assert {"a.one", "a.two", "b.one"} <= all_keys
+    assert "剪切板.内容" in all_keys
 
     prefixed = {e["key"] for e in client.get("/api/list", params={"prefix": "a."}, headers=admin_headers).json()}
     assert prefixed == {"a.one", "a.two"}

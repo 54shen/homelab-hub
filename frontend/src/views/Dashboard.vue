@@ -106,25 +106,32 @@
     </div>
     <n-empty v-else description="暂无设备" style="margin-top:20px" />
 
-    <!-- 变更动态:WS 实时,最多 20 条,旧数据直接抛弃 -->
-    <h2 style="margin:24px 0 12px;font-size:16px;font-weight:600;color:var(--text-primary)">
-      变更动态
-      <span style="font-size:12px;font-weight:400;color:var(--text-secondary);margin-left:8px">
-        <span class="live-dot"></span> 实时 · {{ liveChanges.length }}/{{ MAX_LIVE }}
-      </span>
-    </h2>
-    <n-data-table
-      :columns="liveColumns"
-      :data="liveChanges"
-      :row-key="(row: any) => row.uid"
-      :bordered="false"
-      size="small"
-      style="background:var(--bg-card);border-radius:var(--radius-lg);box-shadow:var(--shadow-card)"
-    >
-      <template #empty>
-        <span style="color:var(--text-secondary);font-size:13px">等待实时数据…(KV 变更会实时出现在这里)</span>
-      </template>
-    </n-data-table>
+    <!-- 剪切板 + 变更动态 并排(窄屏折叠为单列) -->
+    <div class="lower-grid">
+      <ClipboardPanel />
+
+      <!-- 变更动态:WS 实时,最多 20 条,旧数据直接抛弃 -->
+      <div class="lower-right">
+        <h2 style="margin:0 0 12px;font-size:16px;font-weight:600;color:var(--text-primary)">
+          变更动态
+          <span style="font-size:12px;font-weight:400;color:var(--text-secondary);margin-left:8px">
+            <span class="live-dot"></span> 实时 · {{ liveChanges.length }}/{{ MAX_LIVE }}
+          </span>
+        </h2>
+        <n-data-table
+          :columns="liveColumns"
+          :data="liveChanges"
+          :row-key="(row: any) => row.uid"
+          :bordered="false"
+          size="small"
+          style="background:var(--bg-card);border-radius:var(--radius-lg);box-shadow:var(--shadow-card)"
+        >
+          <template #empty>
+            <span style="color:var(--text-secondary);font-size:13px">等待实时数据…(KV 变更会实时出现在这里)</span>
+          </template>
+        </n-data-table>
+      </div>
+    </div>
 
     <!-- 历史记录弹窗 -->
     <HistoryModal v-model:show="showHistory" :key-prop="historyKey" />
@@ -137,9 +144,11 @@ import { NDataTable, NEmpty, NTag } from 'naive-ui'
 import StatCard from '../components/StatCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import HistoryModal from '../components/HistoryModal.vue'
+import ClipboardPanel from '../components/ClipboardPanel.vue'
 import { dashboardApi, deviceApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
 import { useFieldLabels } from '../composables/useFieldLabels'
+import { isClipboardKey } from '../utils/clipboard'
 import type { DashboardStats, Device, KvHistory } from '../types'
 
 const stats = ref<DashboardStats>({
@@ -163,6 +172,8 @@ const liveChanges = ref<Array<KvHistory & { uid: string }>>([])
 const liveSeen = new Set<string>()
 
 function pushLive(data: any) {
+  // 剪切板写入不进变更动态(面板自带实时历史,原始 JSON 在这里是噪音)
+  if (isClipboardKey(data.key)) return
   const uid = `${data.key}|${data.changed_at}`
   console.log('[变更动态] WS kv.changed 收到:', { key: data.key, value: data.value, old_value: data.old_value, source: data.source, changed_at: data.changed_at })
   if (liveSeen.has(uid)) {
@@ -439,6 +450,18 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .ha-count { font-size: 12px; color: var(--text-secondary); }
+
+/* ── 剪切板 + 变更动态 并排 ── */
+.lower-grid {
+  display: grid;
+  grid-template-columns: 5fr 7fr;
+  gap: var(--gap-md);
+  margin-top: 24px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .lower-grid { grid-template-columns: 1fr; }
+}
 
 /* ── 变更动态 ── */
 .live-dot {

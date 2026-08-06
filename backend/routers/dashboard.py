@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Device, KvEntry, KvHistory, SystemLog
 from schemas import DashboardStatsOut, DbStatusOut, TimelineEvent
+from constants import CLIPBOARD_DEVICE_NAME, CLIPBOARD_KEY
 import os
 
 router = APIRouter(prefix="/api", tags=["Dashboard"])
@@ -14,8 +15,12 @@ router = APIRouter(prefix="/api", tags=["Dashboard"])
 
 @router.get("/dashboard/stats", response_model=DashboardStatsOut)
 def dashboard_stats(db: Session = Depends(get_db)):
-    total = db.query(Device).count()
-    online = db.query(Device).filter(Device.online == True).count()
+    # 统计排除内置设备/变量（剪切板等系统实体不计入）
+    total = db.query(Device).filter(Device.name != CLIPBOARD_DEVICE_NAME).count()
+    online = db.query(Device).filter(
+        Device.online == True,
+        Device.name != CLIPBOARD_DEVICE_NAME,
+    ).count()
 
     # 统计服务数量（type=service 的 KV）
     total_services = db.query(KvEntry).filter(KvEntry.key.like("service.%")).count()
@@ -25,7 +30,7 @@ def dashboard_stats(db: Session = Depends(get_db)):
     ).count()
 
     # 变量总数
-    total_keys = db.query(KvEntry).count()
+    total_keys = db.query(KvEntry).filter(KvEntry.key != CLIPBOARD_KEY).count()
 
     # 网络状态：有已注册设备或有公网IP记录即为正常
     public_ip_entry = db.query(KvEntry).filter(KvEntry.key == "network.public_ip").first()
@@ -53,8 +58,10 @@ def dashboard_stats(db: Session = Depends(get_db)):
 
 @router.get("/dashboard/recent", response_model=list)
 def recent_changes(limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)):
-    """最近 KV 值变更记录"""
-    rows = db.query(KvHistory).order_by(KvHistory.changed_at.desc()).limit(limit).all()
+    """最近 KV 值变更记录（排除剪切板等内置 key，其历史在仪表盘面板内展示）"""
+    rows = db.query(KvHistory).filter(
+        KvHistory.key != CLIPBOARD_KEY
+    ).order_by(KvHistory.changed_at.desc()).limit(limit).all()
     return [
         {"id": r.id, "key": r.key, "old_value": r.old_value,
          "new_value": r.new_value, "source": r.source, "changed_at": r.changed_at}
@@ -74,9 +81,12 @@ def db_status(db: Session = Depends(get_db)):
         else:
             file_size = f"{size_bytes / (1024 * 1024):.1f} MB"
 
-    total_keys = db.query(KvEntry).count()
+    total_keys = db.query(KvEntry).filter(KvEntry.key != CLIPBOARD_KEY).count()
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-    active_24h = db.query(KvEntry).filter(KvEntry.updated_at >= yesterday).count()
+    active_24h = db.query(KvEntry).filter(
+        KvEntry.updated_at >= yesterday,
+        KvEntry.key != CLIPBOARD_KEY,
+    ).count()
 
     history_count = db.query(KvHistory).count()
 

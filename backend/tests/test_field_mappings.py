@@ -34,7 +34,11 @@ def test_unmapped_keys_scan(client, admin_headers):
     client.post("/api/field-mappings", json={"field_key": "temperature", "display_name": "温度"}, headers=admin_headers)
 
     r = client.get("/api/field-mappings/unmapped", headers=admin_headers)
-    assert r.json() == ["humidity"]
+    result = r.json()
+    # 湿度未映射 → 出现在结果;内置剪切板 key(中文后缀)不参与扫描;温度已映射 → 不出现
+    assert "humidity" in result
+    assert "内容" not in result
+    assert "temperature" not in result
 
 
 def test_export_template(client, admin_headers):

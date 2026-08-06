@@ -51,6 +51,13 @@ vi.mock('../components/HistoryModal.vue', () => ({
     }
   })
 }))
+// 剪切板面板 stub:自包含组件(拉数据+订阅 WS),Dashboard 集成后只需验证渲染
+vi.mock('../components/ClipboardPanel.vue', () => ({
+  default: defineComponent({
+    name: 'ClipboardPanelStub',
+    setup() { return () => h('div', { class: 'clipboard-panel-stub' }, '剪切板面板') }
+  })
+}))
 
 // ---- naive-ui 轻量 stub ----
 vi.mock('naive-ui', () => ({
@@ -332,5 +339,12 @@ describe('Dashboard.vue', () => {
     await flushPromises()
     expect(wrapper.find('.history-modal-stub').exists()).toBe(true)
     expect(wrapper.find('.history-modal-stub').text()).toBe('pc.cpu')
+  })
+
+  it('渲染剪切板面板(与变更动态并排)', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.find('.clipboard-panel-stub').exists()).toBe(true)
+    expect(wrapper.find('.lower-grid').exists()).toBe(true)
   })
 })

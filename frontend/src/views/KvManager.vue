@@ -134,12 +134,13 @@
 import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import {
   NButton, NCard, NDataTable, NEmpty, NInput, NModal, NForm, NFormItem,
-  NSelect, NInputNumber, NSpace, NPopconfirm, NUpload, useMessage
+  NSelect, NInputNumber, NSpace, NPopconfirm, NTag, NUpload, useMessage
 } from 'naive-ui'
 import { useWebSocket } from '../composables/useWebSocket'
 import { useFieldLabels } from '../composables/useFieldLabels'
 import { kvApi } from '../api'
 import HistoryModal from '../components/HistoryModal.vue'
+import { isClipboardKey } from '../utils/clipboard'
 import type { KvEntry, KvSetRequest } from '../types'
 
 const message = useMessage()
@@ -246,16 +247,20 @@ const columns = [
   {
     title: '操作', key: 'actions', width: 160,
     render(row: KvEntry) {
+      // 内置剪切板变量不可删除(后端同样拒绝),以"内置"标签占位
+      const isBuiltin = isClipboardKey(row.key)
       return h('div', { style: 'display:flex;gap:4px' }, [
         // 历史(最常用)放在修改前面
         h(NButton, { size: 'tiny', quaternary: true, onClick: () => { historyKey.value = row.key; showHistory.value = true } }, { default: () => '历史' }),
         h(NButton, { size: 'tiny', quaternary: true, onClick: () => openEditModal(row) }, { default: () => '编辑' }),
-        h(NPopconfirm, {
-          onPositiveClick: () => handleDelete(row.key)
-        }, {
-          trigger: () => h(NButton, { size: 'tiny', quaternary: true, type: 'error' }, { default: () => '删除' }),
-          default: () => '确定删除？此操作不可撤销'
-        })
+        isBuiltin
+          ? h(NTag, { size: 'tiny', type: 'info', bordered: false, round: true }, { default: () => '内置' })
+          : h(NPopconfirm, {
+            onPositiveClick: () => handleDelete(row.key)
+          }, {
+            trigger: () => h(NButton, { size: 'tiny', quaternary: true, type: 'error' }, { default: () => '删除' }),
+            default: () => '确定删除？此操作不可撤销'
+          })
       ])
     }
   }
@@ -265,7 +270,8 @@ const columns = [
 const groupColumns = columns.filter(c => c.type !== 'selection')
 
 function handleCheck(keys: (string | number)[]) {
-  checkedKeys.value = keys
+  // 内置剪切板变量不可选(批量删除时后端也会跳过,双保险)
+  checkedKeys.value = keys.filter(k => !isClipboardKey(String(k)))
 }
 
 function openCreateModal() {

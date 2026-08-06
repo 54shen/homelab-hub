@@ -1,7 +1,7 @@
 # ============================================================
 # Shared Center — KV 变量 API
 # ============================================================
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from websocket_manager import broadcast
 from database import get_db
@@ -11,6 +11,7 @@ from schemas import (
     KvEntryOut, ApiResponse
 )
 from auth import auth_write
+from constants import is_clipboard_key
 import json
 
 router = APIRouter(prefix="/api", tags=["KV 变量"])
@@ -148,6 +149,8 @@ def batch_set_kv(req: KvBatchRequest, db: Session = Depends(get_db), token=Depen
 
 @router.delete("/kv/{key}", response_model=ApiResponse)
 async def delete_kv(key: str, db: Session = Depends(get_db), token=Depends(auth_write)):
+    if is_clipboard_key(key):
+        raise HTTPException(403, "剪切板为内置变量，不允许删除")
     _delete_kv_sync(key, db)
     db.commit()
     await broadcast("kv.deleted", {"key": key})
@@ -156,10 +159,16 @@ async def delete_kv(key: str, db: Session = Depends(get_db), token=Depends(auth_
 
 @router.post("/kv/batch-delete", response_model=ApiResponse)
 def batch_delete_kv(req: KvBatchDeleteRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
-    for key in req.keys:
+    # 内置变量（剪切板）跳过，不允许删除
+    keys = [k for k in req.keys if not is_clipboard_key(k)]
+    skipped = len(req.keys) - len(keys)
+    for key in keys:
         _delete_kv_sync(key, db)
     db.commit()
-    return ApiResponse(success=True, message=f"已删除 {len(req.keys)} 个变量")
+    msg = f"已删除 {len(keys)} 个变量"
+    if skipped:
+        msg += f"（已跳过 {skipped} 个内置变量）"
+    return ApiResponse(success=True, message=msg)
 
 
 @router.post("/kv/import", response_model=ApiResponse)

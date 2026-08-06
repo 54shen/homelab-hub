@@ -22,12 +22,15 @@ def list_mappings(db: Session = Depends(get_db)):
 # ---- 扫描 KV 表中未映射的 field key（必须在 /{id} 之前注册） ----
 @router.get("/field-mappings/unmapped")
 def list_unmapped(db: Session = Depends(get_db)):
-    """扫描所有 KV key 的后缀，返回还没有映射的 field key 列表"""
+    """扫描所有 KV key 的后缀，返回还没有映射的 field key 列表（内置剪切板 key 除外）"""
+    from constants import is_clipboard_key
     mapped = {m.field_key for m in db.query(FieldMapping).all()}
     all_keys = db.query(KvEntry.key).all()
     seen = set()
     unmapped = []
     for (k,) in all_keys:
+        if is_clipboard_key(k):
+            continue
         suffix = k.rsplit(".", 1)[-1] if "." in k else k
         if suffix not in mapped and suffix not in seen:
             seen.add(suffix)

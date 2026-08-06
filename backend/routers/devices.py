@@ -14,6 +14,7 @@ from schemas import (
 from websocket_manager import broadcast
 from auth import auth_write
 from config import DEFAULT_HEARTBEAT_TIMEOUT
+from constants import CLIPBOARD_DEVICE_NAME, is_clipboard_device
 
 router = APIRouter(prefix="/api", tags=["设备管理"])
 
@@ -43,13 +44,16 @@ def _sync_timeout_kv(db: Session, key: str, timeout: int):
 
 @router.get("/devices", response_model=list[DeviceOut])
 def list_devices(db: Session = Depends(get_db)):
-    return db.query(Device).order_by(Device.online.desc(), Device.last_heartbeat.desc()).all()
+    # 隐藏内置设备（剪切板等），按 name 过滤兜住同名抢注场景
+    return db.query(Device).filter(Device.name != CLIPBOARD_DEVICE_NAME).order_by(
+        Device.online.desc(), Device.last_heartbeat.desc()
+    ).all()
 
 
 @router.get("/devices/{device_id}", response_model=DeviceOut)
 def get_device(device_id: str, db: Session = Depends(get_db)):
     d = db.query(Device).filter(Device.id == device_id).first()
-    if not d:
+    if not d or is_clipboard_device(device_id=device_id):
         from fastapi import HTTPException
         raise HTTPException(404, "设备不存在")
     return d
@@ -57,6 +61,9 @@ def get_device(device_id: str, db: Session = Depends(get_db)):
 
 @router.get("/devices/{device_id}/variables", response_model=list[KvEntryOut])
 def get_device_variables(device_id: str, db: Session = Depends(get_db)):
+    if is_clipboard_device(device_id=device_id):
+        from fastapi import HTTPException
+        raise HTTPException(404, "设备不存在")
     d = db.query(Device).filter(Device.id == device_id).first()
     if not d:
         return []
@@ -210,6 +217,9 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
 
 @router.delete("/devices/{device_id}", response_model=ApiResponse)
 async def unregister_device(device_id: str, db: Session = Depends(get_db), token=Depends(auth_write)):
+    if is_clipboard_device(device_id=device_id):
+        from fastapi import HTTPException
+        raise HTTPException(403, "剪切板为内置设备，不允许删除")
     d = db.query(Device).filter(Device.id == device_id).first()
     name = d.name if d else None
     if d:
