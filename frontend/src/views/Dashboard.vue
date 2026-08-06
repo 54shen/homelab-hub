@@ -29,18 +29,23 @@
         :icon-bg="wsConnected ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)'"
         :icon-color="wsConnected ? '#22C55E' : '#EF4444'"
         :primary="wsConnected ? '已连接' : '已断开'"
-        :secondary="stats.public_ip"
         label="实时连接"
       />
-      <!-- TOTP 验证码实时展示(自己的密钥,点击复制;在 设置 → TOTP 展示器 录入) -->
+      <!-- TOTP 验证码实时展示:与 StatCard 同构布局(对齐),点击复制,倒计时进度条 -->
       <div class="totp-card">
-        <span class="totp-label">TOTP 验证码</span>
-        <template v-if="totpConfigured">
-          <span class="totp-code" title="点击复制验证码" @click="copyTotpCode">{{ totpCode }}</span>
-        </template>
-        <template v-else>
-          <span class="totp-empty">未配置</span>
-        </template>
+        <div class="totp-icon" :style="{ background: 'rgba(91, 141, 239, 0.1)' }">
+          <ion-icon name="shield-checkmark-outline" style="color:#5B8DEF"></ion-icon>
+        </div>
+        <div class="totp-body">
+          <div class="totp-value">
+            <span v-if="totpConfigured" class="totp-code" title="点击复制验证码" @click="copyTotpCode">{{ totpCode }}</span>
+            <span v-else class="totp-empty">未配置</span>
+          </div>
+          <div class="totp-label">TOTP 验证码</div>
+          <div v-if="totpConfigured" class="totp-progress">
+            <div class="totp-fill" :style="{ width: (totpRemaining / 30 * 100) + '%' }"></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -502,37 +507,61 @@ onUnmounted(() => {
 .ha-count { font-size: 12px; color: var(--text-secondary); }
 
 /* ── TOTP 验证码卡片 ──
-   与 StatCard 同高同风格:label 顶部 + 验证码垂直居中,不再有进度条撑高 */
+   与 StatCard 完全同构(padding/icon 46px/flex-start),确保四卡同行上下对齐 */
 .totp-card {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 10px;
   background: var(--bg-card);
   border: 1px solid var(--border-card);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 20px 24px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
   box-shadow: var(--shadow-card);
-  min-height: 104px;
 }
-.totp-label {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-secondary);
+.totp-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
 }
+.totp-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.totp-value { min-height: 34px; display: flex; align-items: center; }
 .totp-code {
-  font-size: 34px;
+  font-size: 28px;
   font-weight: 700;
-  letter-spacing: 5px;
-  font-family: 'Consolas', 'Courier New', monospace;
   color: var(--color-info);
-  line-height: 1;
+  letter-spacing: 3px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 .totp-empty {
-  font-size: 15px;
+  font-size: 16px;
   color: var(--text-secondary);
+}
+.totp-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  font-weight: 500;
+}
+.totp-progress {
+  height: 4px;
+  background: var(--border-light);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  margin-top: 8px;
+}
+.totp-fill {
+  height: 100%;
+  background: var(--color-info);
+  border-radius: var(--radius-full);
+  transition: width 1s linear;
 }
 
 /* ── 剪切板卡片:固定在左上角占 2×2 设备位 ──

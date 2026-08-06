@@ -41,6 +41,9 @@
               style="font-size:40px;font-weight:700;letter-spacing:6px;font-family:Consolas,monospace;color:var(--color-info);cursor:pointer;line-height:1.3"
               @click="copyTotpViewCode"
             >{{ totpViewCode }}</span>
+            <div class="totp-progress" style="width:220px;margin-top:8px">
+              <div class="totp-fill" :style="{ width: (totpRemaining / 30 * 100) + '%' }"></div>
+            </div>
             <p style="font-size:12px;color:var(--text-secondary);margin-top:4px">
               每 30 秒自动刷新;每个用户相互独立、相互隔离;密钥仅服务器保存,前端不可见。
               <b v-if="isAdmin">管理员可在下方「用户管理」查看所有用户的验证码。</b>
@@ -166,7 +169,7 @@
         />
         <n-empty v-else description="暂无用户" style="margin:20px 0" />
 
-        <!-- 管理员查看用户 TOTP 弹窗(仅验证码,密钥不可见) -->
+        <!-- 管理员查看用户 TOTP 弹窗(仅验证码 + 进度条,密钥不可见) -->
         <n-modal v-model:show="totpViewVisible" preset="card" :title="`${totpViewData.username} 的 TOTP`" style="width:420px">
           <template v-if="totpViewData.configured">
             <div style="display:flex;flex-direction:column;gap:10px">
@@ -175,6 +178,9 @@
                 style="font-size:40px;font-weight:700;letter-spacing:6px;font-family:Consolas,monospace;color:var(--color-info);cursor:pointer;line-height:1.2"
                 @click="copyUserTotpViewCode"
               >{{ totpViewData.code }}</span>
+              <div class="totp-progress">
+                <div class="totp-fill" :style="{ width: (totpViewRemaining / 30 * 100) + '%' }"></div>
+              </div>
             </div>
           </template>
           <n-empty v-else description="该用户未配置 TOTP" />
@@ -264,7 +270,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, ref } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem, NEmpty,
   NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSpace, NSwitch,
@@ -283,15 +289,25 @@ const totpSecretInput = ref('')
 const totpSaving = ref(false)
 const totpConfigured = ref(false)  // 是否已配置(密钥不可回读,仅状态)
 const totpEditing = ref(false)     // 修改模式:重新录入密钥覆盖
-const totpViewCode = ref('')       // 当前验证码(5 秒轮询刷新)
+const totpViewCode = ref('')       // 当前验证码
+const totpRemaining = ref(0)       // 本周期剩余秒数(进度条)
 let totpTimer: ReturnType<typeof setInterval> | null = null
 
 async function loadTotpStatus() {
   try {
     const r = await dashboardApi.totpCode()
     totpConfigured.value = !!r.data?.configured
-    if (r.data?.configured) totpViewCode.value = r.data.code ?? ''
+    if (r.data?.configured) {
+      totpViewCode.value = r.data.code ?? ''
+      totpRemaining.value = r.data.period_remaining ?? 0
+    }
   } catch { /* 忽略 */ }
+}
+
+function totpTick() {
+  if (!totpConfigured.value) return
+  totpRemaining.value -= 1
+  if (totpRemaining.value <= 0) loadTotpStatus()  // 周期边界自动刷新新码
 }
 
 async function saveTotpSecret() {
@@ -331,7 +347,7 @@ async function copyTotpViewCode() {
 
 onMounted(() => {
   loadTotpStatus()
-  totpTimer = setInterval(loadTotpStatus, 5000)  // 验证码 30 秒轮换,5 秒刷新足够
+  totpTimer = setInterval(totpTick, 1000)  // 本地秒级倒计时,周期边界自动刷新
 })
 
 onUnmounted(() => {
@@ -458,11 +474,32 @@ const userColumns = [
   }
 ]
 
-// ---- 管理员查看用户 TOTP(仅当前验证码,密钥永不下发) ----
+// ---- 管理员查看用户 TOTP(仅当前验证码 + 倒计时进度条,密钥永不下发) ----
 const totpViewVisible = ref(false)
 const totpViewData = ref<{ username: string; configured: boolean; code: string }>({
   username: '', configured: false, code: ''
 })
+const totpViewRemaining = ref(0)   // 弹窗内进度条剩余秒数
+const totpViewUserId = ref<number | null>(null)
+let totpViewTimer: ReturnType<typeof setInterval> | null = null
+
+function stopTotpViewTick() {
+  if (totpViewTimer) {
+    clearInterval(totpViewTimer)
+    totpViewTimer = null
+  }
+}
+
+function startTotpViewTick() {
+  stopTotpViewTick()
+  totpViewTimer = setInterval(() => {
+    totpViewRemaining.value -= 1
+    if (totpViewRemaining.value <= 0) {
+      // 周期边界:重新拉取该用户验证码(弹窗内保持实时)
+      if (totpViewUserId.value != null) viewUserTotp({ id: totpViewUserId.value } as any)
+    }
+  }, 1000)
+}
 
 async function viewUserTotp(row: UserEntry & { has_totp?: boolean }) {
   try {
@@ -472,11 +509,18 @@ async function viewUserTotp(row: UserEntry & { has_totp?: boolean }) {
       configured: !!code.data?.configured,
       code: code.data?.code || '',
     }
+    totpViewRemaining.value = code.data?.period_remaining ?? 0
+    totpViewUserId.value = row.id
     totpViewVisible.value = true
+    startTotpViewTick()
   } catch (e: any) {
     message.error(e?.response?.data?.detail || '获取失败')
   }
 }
+
+watch(totpViewVisible, (v) => {
+  if (!v) stopTotpViewTick()  // 关闭弹窗停止 tick
+})
 
 async function copyUserTotpViewCode() {
   if (!totpViewData.value.code) return
@@ -779,6 +823,18 @@ onMounted(() => { loadUsers(); loadTokens(); loadSessions(); loadDbStatus(); loa
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+}
+.totp-progress {
+  height: 4px;
+  background: var(--border-light);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.totp-fill {
+  height: 100%;
+  background: var(--color-info);
+  border-radius: var(--radius-full);
+  transition: width 1s linear;
 }
 .login-mode-desc p {
   font-size: 13px;

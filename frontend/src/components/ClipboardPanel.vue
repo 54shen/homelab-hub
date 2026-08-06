@@ -172,7 +172,7 @@ onUnmounted(() => {
         ref="contentInput"
         v-model:value="content"
         type="textarea"
-        :rows="5"
+        :rows="10"
         placeholder="要复制的内容…"
         @keydown.enter.exact.prevent="send"
       />
