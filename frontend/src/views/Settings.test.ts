@@ -10,7 +10,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 // http 默认导出(Settings 直接用它请求 /users /tokens /sessions /auth/password)
 const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() }))
 const authApiMock = vi.hoisted(() => ({ twofaStatus: vi.fn(), twofaSetup: vi.fn(), twofaConfirm: vi.fn(), twofaDisable: vi.fn() }))
-const dashboardApiMock = vi.hoisted(() => ({ dbStatus: vi.fn(), totpSecret: vi.fn() }))
+const dashboardApiMock = vi.hoisted(() => ({ dbStatus: vi.fn(), totpSecret: vi.fn(), totpSecretInfo: vi.fn(), totpCode: vi.fn() }))
 const settingsApiMock = vi.hoisted(() => ({ exportBackup: vi.fn(), restoreBackup: vi.fn() }))
 const qrMock = vi.hoisted(() => vi.fn(() => Promise.resolve('data:image/png;base64,QR')))
 const clipboardMock = vi.hoisted(() => vi.fn())
@@ -167,10 +167,10 @@ enableAutoUnmount(afterEach)
 function mockDefaultData() {
   httpMock.get.mockImplementation((url: string) => {
     if (url === '/users') {
-      // admin(当前登录者,无编辑/删除按钮)+ 普通用户 bob(可编辑/删除)
+      // admin(当前登录者,无编辑/删除按钮)+ 普通用户 bob(可编辑/删除,bob 已配置 TOTP)
       return Promise.resolve({ data: [
-        { id: 1, username: 'admin', permission: 'admin', created_at: '2026-01-01' },
-        { id: 5, username: 'bob', permission: 'read', created_at: '2026-02-01' },
+        { id: 1, username: 'admin', permission: 'admin', created_at: '2026-01-01', has_totp: false },
+        { id: 5, username: 'bob', permission: 'read', created_at: '2026-02-01', has_totp: true },
       ] })
     }
     if (url === '/tokens') {
@@ -206,6 +206,7 @@ describe('Settings.vue', () => {
     msgSuccess.mockReset(); msgError.mockReset(); msgWarning.mockReset()
     localStorage.clear()
     localStorage.setItem('sc_username', 'admin')
+    localStorage.setItem('sc_permission', 'admin')
     mockDefaultData()
     httpMock.put.mockResolvedValue({ data: {} })
     httpMock.post.mockResolvedValue({ data: {} })
@@ -351,6 +352,25 @@ describe('Settings.vue', () => {
     expect(dashboardApiMock.totpSecret).toHaveBeenCalledWith('JBSWY3DPEHPK3PXP')
     expect(msgSuccess).toHaveBeenCalledWith('TOTP 展示器已更新')
     expect((input.element as HTMLInputElement).value).toBe('')
+  })
+
+  it('管理员查看用户 TOTP:点击查看 → 弹窗显示密钥与当前验证码', async () => {
+    dashboardApiMock.totpSecretInfo.mockResolvedValue({ data: { configured: true, secret: 'JBSWY3DPEHPK3PXP' } })
+    dashboardApiMock.totpCode.mockResolvedValue({ data: { configured: true, code: '654321', period_remaining: 15 } })
+    const wrapper = mountPage()
+    await flushPromises()
+    const rows = wrapper.findAll('.table-row')
+    // bob 行(id=5)有"查看"按钮(admin 当前登录者,列表可见所有用户 TOTP)
+    const bobRow = rows[2]
+    await bobRow.findAll('button').find((b) => b.text().includes('查看'))!.trigger('click')
+    await flushPromises()
+
+    expect(dashboardApiMock.totpSecretInfo).toHaveBeenCalledWith(5)
+    expect(dashboardApiMock.totpCode).toHaveBeenCalledWith(5)
+    const modal = wrapper.find('.n-modal')
+    expect(modal.text()).toContain('bob 的 TOTP')
+    expect(modal.text()).toContain('JBSWY3DPEHPK3PXP')
+    expect(modal.text()).toContain('654321')
   })
 
   it('新增用户:校验 → 保存调用接口并关闭弹窗', async () => {

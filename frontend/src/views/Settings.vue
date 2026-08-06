@@ -30,13 +30,15 @@
       </div>
     </n-card>
 
-    <!-- TOTP 展示器:管理员录入密钥,仪表盘实时展示验证码 -->
+    <!-- TOTP 展示器:每个用户自己的密钥,仪表盘实时展示验证码 -->
     <n-card title="TOTP 展示器" size="small" style="margin-bottom:16px">
       <div class="login-mode-row">
         <div class="login-mode-desc">
-          <p>录入一个 <b>Base32 TOTP 密钥</b>(如路由器 / 服务 / 网站的二次验证密钥),仪表盘将实时展示当前 6 位验证码,免掏手机。</p>
+          <p>录入你自己的 <b>Base32 TOTP 密钥</b>(如路由器 / 服务 / 网站的二次验证密钥),仪表盘将实时展示当前 6 位验证码,免掏手机。</p>
           <p style="font-size:12px;color:var(--text-secondary);margin-top:6px">
-            密钥单独保存,不作为 KV 变量;仅管理员可录入/修改;每 30 秒自动刷新。
+            每个用户相互独立、相互隔离;密钥单独保存,不作为 KV 变量;每 30 秒自动刷新;
+            <b v-if="isAdmin">管理员可在下方「用户管理」查看所有用户的 TOTP。</b>
+            <span v-else>管理员可在用户管理中查看你的配置。</span>
           </p>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
@@ -143,6 +145,26 @@
           :pagination="false"
         />
         <n-empty v-else description="暂无用户" style="margin:20px 0" />
+
+        <!-- 管理员查看用户 TOTP 弹窗 -->
+        <n-modal v-model:show="totpViewVisible" preset="card" :title="`${totpViewData.username} 的 TOTP`" style="width:420px">
+          <template v-if="totpViewData.configured">
+            <div style="display:flex;flex-direction:column;gap:14px">
+              <div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">当前验证码(点击复制)</div>
+                <span
+                  style="font-size:34px;font-weight:700;letter-spacing:5px;font-family:Consolas,monospace;color:var(--color-info);cursor:pointer"
+                  @click="copyTotpViewCode"
+                >{{ totpViewData.code }}</span>
+              </div>
+              <div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Base32 密钥</div>
+                <code style="font-size:13px;word-break:break-all">{{ totpViewData.secret }}</code>
+              </div>
+            </div>
+          </template>
+          <n-empty v-else description="该用户未配置 TOTP" />
+        </n-modal>
       </n-card>
 
       <n-card title="活跃会话" size="small">
@@ -351,11 +373,22 @@ const userForm = ref({ username: '', password: '', permission: 'read' })
 
 // 当前登录用户(自己那行:改密码走「修改密码」模块,用户管理里不提供编辑)
 const currentUsername = localStorage.getItem('sc_username') || ''
+// 仅管理员可查看所有用户的 TOTP(普通用户列表无查看入口)
+const isAdmin = localStorage.getItem('sc_permission') === 'admin'
 
 const userColumns = [
   { title: '用户名', key: 'username', width: 120 },
   { title: '权限', key: 'permission', width: 80 },
-  { title: '创建时间', key: 'created_at', width: 160 },
+  { title: '创建时间', key: 'created_at', width: 140 },
+  {
+    title: 'TOTP', key: 'totp', width: 110,
+    render(row: UserEntry & { has_totp?: boolean }) {
+      // 仅管理员可查看所有用户的 TOTP(密钥/验证码)
+      if (!isAdmin) return null
+      if (!row.has_totp) return h('span', { style: 'color:var(--text-secondary);font-size:12px' }, '未配置')
+      return h(NButton, { size: 'tiny', quaternary: true, onClick: () => viewUserTotp(row) }, { default: () => '查看' })
+    }
+  },
   {
     title: '操作', key: 'actions', width: 120,
     render(row: UserEntry) {
@@ -372,6 +405,40 @@ const userColumns = [
     }
   }
 ]
+
+// ---- 管理员查看用户 TOTP(密钥 + 当前验证码) ----
+const totpViewVisible = ref(false)
+const totpViewData = ref<{ username: string; configured: boolean; secret: string; code: string }>({
+  username: '', configured: false, secret: '', code: ''
+})
+
+async function viewUserTotp(row: UserEntry & { has_totp?: boolean }) {
+  try {
+    const [sec, code] = await Promise.all([
+      dashboardApi.totpSecretInfo(row.id),
+      dashboardApi.totpCode(row.id),
+    ])
+    totpViewData.value = {
+      username: row.username,
+      configured: !!sec.data?.configured,
+      secret: sec.data?.secret || '',
+      code: code.data?.code || '',
+    }
+    totpViewVisible.value = true
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '获取失败')
+  }
+}
+
+async function copyTotpViewCode() {
+  if (!totpViewData.value.code) return
+  try {
+    await navigator.clipboard.writeText(totpViewData.value.code)
+    message.success('验证码已复制')
+  } catch {
+    message.error('复制失败')
+  }
+}
 
 function openUserCreate() {
   editingUserId.value = null; userForm.value = { username: '', password: '', permission: 'read' }; userModalVisible.value = true

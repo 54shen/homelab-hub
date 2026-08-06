@@ -30,15 +30,47 @@ def _is_admin(request: Request, db: Session) -> bool:
     return False
 
 
-# ---- TOTP 展示器:管理员录入密钥(单独保存,不作为 KV 变量),仪表盘实时展示验证码 ----
+def _current_user(request: Request, db: Session):
+    """当前登录用户(Web 会话或 API Token 关联)"""
+    from models import User
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    token_str = auth[7:]
+    session_record = db.query(SessionModel).filter(SessionModel.session_token == token_str).first()
+    if session_record:
+        return db.query(User).filter(User.id == session_record.user_id).first()
+    token_record = db.query(TokenModel).filter(TokenModel.token == token_str).first()
+    if token_record and token_record.user_id:
+        return db.query(User).filter(User.id == token_record.user_id).first()
+    return None
+
+
+def _totp_target(request: Request, db: Session, user_id: int | None):
+    """解析 TOTP 目标用户:默认自己;带 user_id 查/改别人仅限 admin。
+    返回 (target_user_id, error_response)"""
+    user = _current_user(request, db)
+    if not user:
+        return None, HTTPException(401, "未登录")
+    target_id = user_id if user_id is not None else user.id
+    if target_id != user.id and not _is_admin(request, db):
+        return None, HTTPException(403, "仅管理员可查看/修改其他用户的 TOTP")
+    return target_id, None
+
+
+# ---- TOTP 展示器:每用户独立密钥(单独保存,不作为 KV 变量),仪表盘实时展示自己的验证码 ----
 class TotpSecretPayload(BaseModel):
     secret: str
 
 
 @router.get("/dashboard/totp-code")
-def totp_code(db: Session = Depends(get_db)):
-    """当前 6 位验证码 + 本周期剩余秒数(未配置 → configured=False)"""
-    row = db.query(TotpDisplay).get(1)
+def totp_code(request: Request, db: Session = Depends(get_db),
+              user_id: int | None = None):
+    """当前 6 位验证码 + 本周期剩余秒数(查自己的;admin 可带 user_id 查别人的)"""
+    target_id, err = _totp_target(request, db, user_id)
+    if err:
+        raise err
+    row = db.query(TotpDisplay).filter(TotpDisplay.user_id == target_id).first()
     if not row or not row.secret:
         return {"configured": False}
     import pyotp
@@ -49,20 +81,35 @@ def totp_code(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/dashboard/totp-secret")
+def get_totp_secret(request: Request, db: Session = Depends(get_db),
+                    user_id: int | None = None):
+    """查看 TOTP 密钥:自己或 admin 查看别人的(用户管理弹窗用)"""
+    target_id, err = _totp_target(request, db, user_id)
+    if err:
+        raise err
+    row = db.query(TotpDisplay).filter(TotpDisplay.user_id == target_id).first()
+    if not row or not row.secret:
+        return {"configured": False, "secret": ""}
+    return {"configured": True, "secret": row.secret}
+
+
 @router.put("/dashboard/totp-secret", response_model=ApiResponse)
-def set_totp_secret(req: TotpSecretPayload, request: Request, db: Session = Depends(get_db)):
-    """管理员录入/更新 TOTP 密钥(保存前校验 Base32 有效)"""
-    if not _is_admin(request, db):
-        raise HTTPException(403, "仅管理员可配置 TOTP 展示器")
+def set_totp_secret(req: TotpSecretPayload, request: Request, db: Session = Depends(get_db),
+                    user_id: int | None = None):
+    """设置自己的 TOTP 密钥(保存前校验 Base32 有效);admin 可代其他用户设置"""
+    target_id, err = _totp_target(request, db, user_id)
+    if err:
+        raise err
     secret = req.secret.strip().upper()
     import pyotp
     try:
         pyotp.TOTP(secret).now()  # 试算一次,非法 Base32 抛异常
     except Exception:
         raise HTTPException(400, "密钥格式无效,请检查 Base32 密钥")
-    row = db.query(TotpDisplay).get(1)
+    row = db.query(TotpDisplay).filter(TotpDisplay.user_id == target_id).first()
     if not row:
-        row = TotpDisplay(id=1)
+        row = TotpDisplay(user_id=target_id)
         db.add(row)
     row.secret = secret
     row.updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

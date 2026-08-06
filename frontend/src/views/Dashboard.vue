@@ -32,11 +32,11 @@
         :secondary="stats.public_ip"
         label="网络状态"
       />
-      <!-- TOTP 验证码实时展示(密钥在 设置 → TOTP 展示器 录入) -->
+      <!-- TOTP 验证码实时展示(自己的密钥,点击复制;在 设置 → TOTP 展示器 录入) -->
       <div class="totp-card">
         <span class="totp-label">TOTP 验证码</span>
         <template v-if="totpConfigured">
-          <span class="totp-code" :title="'每 30 秒刷新'">{{ totpCode }}</span>
+          <span class="totp-code" title="点击复制验证码" @click="copyTotpCode">{{ totpCode }}</span>
           <div class="totp-progress">
             <div class="totp-fill" :style="{ width: (totpRemaining / 30 * 100) + '%' }"></div>
           </div>
@@ -142,7 +142,7 @@
 
 <script setup lang="ts">
 import { h, onMounted, onUnmounted, ref } from 'vue'
-import { NDataTable, NEmpty, NTag } from 'naive-ui'
+import { NDataTable, NEmpty, NTag, useMessage } from 'naive-ui'
 import StatCard from '../components/StatCard.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import HistoryModal from '../components/HistoryModal.vue'
@@ -153,6 +153,7 @@ import { useFieldLabels } from '../composables/useFieldLabels'
 import { isClipboardKey } from '../utils/clipboard'
 import type { DashboardStats, Device, KvHistory } from '../types'
 
+const message = useMessage()
 const stats = ref<DashboardStats>({
   total_devices: 0, online_devices: 0, total_services: 0,
   running_services: 0, total_keys: 0, network_status: 'offline', public_ip: '--', system_health: 100
@@ -179,6 +180,30 @@ function totpTick() {
   if (!totpConfigured.value) return
   totpRemaining.value -= 1
   if (totpRemaining.value <= 0) loadTotpCode()  // 到周期边界立即刷新新码
+}
+
+// 点击验证码 → 复制到系统剪贴板
+async function copyTotpCode() {
+  if (!totpCode.value) return
+  try {
+    await navigator.clipboard.writeText(totpCode.value)
+    message.success('验证码已复制')
+  } catch {
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = totpCode.value
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      const ok = document.execCommand('copy')
+      document.body.removeChild(ta)
+      if (ok) message.success('验证码已复制')
+      else message.error('复制失败')
+    } catch {
+      message.error('复制失败')
+    }
+  }
 }
 const devices = ref<Device[]>([])
 const showHistory = ref(false)

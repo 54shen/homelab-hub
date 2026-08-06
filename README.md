@@ -15,7 +15,7 @@
 | **历史记录** | 所有 KV 变更留痕,支持 key/来源/时间筛选、数值趋势图、统计、CSV 导出 |
 | **实时推送** | WebSocket 双向实时,「变更动态」页零 API 请求,纯推送刷新 |
 | **剪切板** | 内置「剪切板.内容」key(不可删除),仪表盘一键复制内容,多端 WS 实时同步 |
-| **TOTP 展示器** | 管理员录入 TOTP 密钥(单独保存,非 KV 变量),仪表盘实时展示 6 位验证码,免掏手机 |
+| **TOTP 展示器** | 每用户独立录入 TOTP 密钥(单独保存,非 KV 变量,相互隔离),仪表盘实时展示自己的 6 位验证码,点击即复制;管理员可在用户管理中查看所有用户的 |
 | **告警 & Webhook** | 规则引擎(阈值/变化/离线/过期)+ HTTP 回调,自动通知 |
 | **字段映射** | key → 中文显示名,全站生效(筛选下拉、表格、设备详情) |
 | **Home Assistant** | HA 实体状态一键同步为 KV 变量 |
@@ -352,7 +352,7 @@ location ^~ / {
 
 | 模块 | 端点 |
 |---|---|
-| 仪表盘 | `GET /dashboard/stats`、`GET /dashboard/recent`、`GET /dashboard/db-status`、`GET /dashboard/timeline`、`GET /dashboard/totp-code`、`PUT /dashboard/totp-secret`(仅 admin) |
+| 仪表盘 | `GET /dashboard/stats`、`GET /dashboard/recent`、`GET /dashboard/db-status`、`GET /dashboard/timeline`、`GET /dashboard/totp-code`(查自己,admin 可带 user_id)、`GET|PUT /dashboard/totp-secret`(自己,admin 可带 user_id) |
 | 告警 | `GET|POST /alerts`、`PUT|DELETE /alerts/{id}`、`POST /alerts/{id}/toggle` |
 | Webhook | `GET|POST /webhooks`、`PUT|DELETE /webhooks/{id}`、`POST /webhooks/{id}/test`、`POST /webhooks/preview-url` |
 | 字段映射 | `GET|POST /field-mappings`、`PUT|DELETE /field-mappings/{id}`、`GET /field-mappings/unmapped`、`GET /field-mappings/export/template`、`POST /field-mappings/import` |

@@ -167,10 +167,11 @@ class SystemLog(Base):
     created_at = Column(String(32), default=_now)
 
 
-# ---- TOTP 展示器表(单行:管理员录入的 TOTP 密钥,仪表盘实时展示验证码) ----
+# ---- TOTP 展示器表(每用户一行:各自录入密钥,相互隔离;管理员可在用户管理中查看) ----
 class TotpDisplay(Base):
     __tablename__ = "totp_display"
 
-    id = Column(Integer, primary_key=True)          # 恒为 1,单行
-    secret = Column(String(128), default="")        # Base32 密钥
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, unique=True, index=True)  # 关联 users.id,每用户一行
+    secret = Column(String(128), default="")            # Base32 密钥
     updated_at = Column(String(32), default=_now)

@@ -648,9 +648,15 @@ def list_users():
     db = SessionLocal()
     try:
         users = db.query(User).order_by(User.id).all()
+        # 是否配置了 TOTP 展示器(管理员用户管理里显示;密钥/验证码走 dashboard 接口)
+        from models import TotpDisplay
+        totp_user_ids = {
+            r[0] for r in db.query(TotpDisplay.user_id).filter(TotpDisplay.secret != "").all()
+        }
         return [{
             "id": u.id, "username": u.username,
-            "permission": u.permission, "created_at": u.created_at
+            "permission": u.permission, "created_at": u.created_at,
+            "has_totp": u.id in totp_user_ids
         } for u in users]
     finally:
         db.close()

@@ -121,13 +121,19 @@ export const dashboardApi = {
   timeline(limit = 20) {
     return http.get<{ events: { time: string; icon: string; title: string; description: string; color: string }[] }>('/dashboard/timeline', { params: { limit } })
   },
-  /** TOTP 展示器:当前验证码(未配置 → configured=false) */
-  totpCode() {
-    return http.get<{ configured: boolean; code?: string; period_remaining?: number }>('/dashboard/totp-code')
+  /** TOTP 展示器:当前验证码(查自己;admin 可带 user_id 查别人) */
+  totpCode(userId?: number) {
+    return http.get<{ configured: boolean; code?: string; period_remaining?: number }>(
+      '/dashboard/totp-code', { params: userId ? { user_id: userId } : {} })
   },
-  /** TOTP 展示器:管理员录入密钥(仅 admin) */
-  totpSecret(secret: string) {
-    return http.put<ApiResponse>('/dashboard/totp-secret', { secret })
+  /** TOTP 展示器:设置自己的密钥(admin 可代其他用户设置) */
+  totpSecret(secret: string, userId?: number) {
+    return http.put<ApiResponse>('/dashboard/totp-secret', { secret }, { params: userId ? { user_id: userId } : {} })
+  },
+  /** TOTP 展示器:查看密钥(自己或 admin 查看别人) */
+  totpSecretInfo(userId?: number) {
+    return http.get<{ configured: boolean; secret?: string }>(
+      '/dashboard/totp-secret', { params: userId ? { user_id: userId } : {} })
   }
 }
 

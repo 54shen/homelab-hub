@@ -13,6 +13,7 @@ const deviceApiMock = vi.hoisted(() => ({ list: vi.fn(), variables: vi.fn() }))
 // 捕获 useWebSocket 注册的 on 回调,用于模拟 WS 消息
 const wsOnMock = vi.hoisted(() => vi.fn(() => () => {}))
 const routerPush = vi.hoisted(() => vi.fn())
+const msgSuccess = vi.hoisted(() => vi.fn())
 
 vi.mock('../api', () => ({ dashboardApi: dashboardApiMock, deviceApi: deviceApiMock }))
 vi.mock('../composables/useWebSocket', () => ({
@@ -78,7 +79,8 @@ vi.mock('naive-ui', () => ({
     }
   }),
   NEmpty: defineComponent({ props: ['description'], setup(props) { return () => h('div', { class: 'n-empty' }, props.description) } }),
-  NTag: defineComponent({ props: ['size', 'bordered', 'round', 'type'], setup(_, { slots }) { return () => h('span', { class: 'n-tag' }, slots.default?.()) } })
+  NTag: defineComponent({ props: ['size', 'bordered', 'round', 'type'], setup(_, { slots }) { return () => h('span', { class: 'n-tag' }, slots.default?.()) } }),
+  useMessage: () => ({ success: msgSuccess, error: vi.fn(), info: vi.fn() })
 }))
 
 import Dashboard from './Dashboard.vue'
@@ -161,11 +163,18 @@ describe('Dashboard.vue', () => {
     expect(wrapper.text()).not.toContain('系统健康度')
   })
 
-  it('TOTP 卡片:配置后显示 6 位验证码', async () => {
+  it('TOTP 卡片:配置后显示 6 位验证码,点击复制', async () => {
     dashboardApiMock.totpCode.mockResolvedValue({ data: { configured: true, code: '123456', period_remaining: 20 } })
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } })
     const wrapper = mountPage()
     await flushPromises()
-    expect(wrapper.find('.totp-code').text()).toBe('123456')
+    const codeEl = wrapper.find('.totp-code')
+    expect(codeEl.text()).toBe('123456')
+
+    await codeEl.trigger('click')
+    await flushPromises()
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('123456')
+    expect(msgSuccess).toHaveBeenCalledWith('验证码已复制')
   })
 
   it('无设备时显示空状态', async () => {
