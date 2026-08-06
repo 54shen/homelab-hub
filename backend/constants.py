@@ -13,6 +13,9 @@ CLIPBOARD_DEVICE_ID = hashlib.md5(
     f"{CLIPBOARD_DEVICE_NAME}:{CLIPBOARD_DEVICE_TYPE}".encode()
 ).hexdigest()[:12]
 
+# ---- 登录安全：仅验证码登录开关（存 UISetting） ----
+AUTH_CODE_ONLY_KEY = "auth_code_only"
+
 
 def is_clipboard_key(key: str) -> bool:
     return key == CLIPBOARD_KEY

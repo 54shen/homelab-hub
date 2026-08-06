@@ -6,7 +6,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPExcept
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from database import init_db, SessionLocal
-from models import Token as TokenModel, User, Session as SessionModel
+from models import Token as TokenModel, User, Session as SessionModel, UISetting
+from constants import AUTH_CODE_ONLY_KEY
 import hashlib
 import secrets
 
@@ -98,7 +99,9 @@ app.add_middleware(
 
 
 # ---- Auth 中间件：强制 Token 认证（含读操作） ----
-PUBLIC_PATHS = ("/api/health", "/docs", "/openapi.json", "/redoc", "/api/auth/login", "/api/auth/verify-2fa", "/", "/ws")
+PUBLIC_PATHS = ("/api/health", "/docs", "/openapi.json", "/redoc",
+                "/api/auth/login", "/api/auth/verify-2fa", "/api/auth/login-mode", "/api/auth/totp-login",
+                "/", "/ws")
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
@@ -177,6 +180,63 @@ class LoginRequest(PydanticBase):
     username: str
     password: str
 
+# ---- 仅验证码登录：全局 A 锁 / B 锁 / 一次性 ticket（内存存储，重启清零） ----
+# 全局 A 锁：纯验证码(totp-login)连续错 A_FAIL_LIMIT 次 → 纯验证码渠道全局锁 30 分钟。
+#   B(用户名+密码+验证码)与未绑定用户的密码登录不受影响；管理员 B 登录成功立即重置。
+# B 锁：按用户名，B 路径连续失败 B_FAIL_LIMIT 次 → 该用户名锁 1 分钟。
+# ticket：login 验密码成功后发一次性票据(5 分钟有效)，verify-2fa 携带以证明"密码已验证"。
+A_FAIL_LIMIT = 5
+A_LOCK_SECONDS = 1800      # 30 分钟
+B_FAIL_LIMIT = 5
+B_LOCK_SECONDS = 60        # 1 分钟
+TICKET_TTL = 300           # 5 分钟
+_code_lock = {"fail": 0, "until": 0.0}       # 全局 A 锁
+_b_locks: dict[str, list] = {}               # username -> [fail_count, locked_until]
+_login_tickets: dict[str, list] = {}         # ticket -> [username, expire_ts]
+
+
+def _is_code_only(db) -> bool:
+    row = db.query(UISetting).filter(UISetting.key == AUTH_CODE_ONLY_KEY).first()
+    return bool(row and row.value == "1")
+
+
+def _code_locked() -> bool:
+    return time.time() < _code_lock["until"]
+
+
+def _clear_code_lock():
+    _code_lock["fail"] = 0
+    _code_lock["until"] = 0.0
+
+
+def _b_locked(username: str) -> bool:
+    entry = _b_locks.get(username)
+    return bool(entry and time.time() < entry[1])
+
+
+def _b_fail(username: str):
+    """B 路径失败计数；已锁定期间不叠加，避免延长锁定期"""
+    now = time.time()
+    entry = _b_locks.setdefault(username, [0, 0.0])
+    if entry[1] > now:
+        return
+    entry[0] += 1
+    if entry[0] >= B_FAIL_LIMIT:
+        entry[1] = now + B_LOCK_SECONDS
+        entry[0] = 0
+
+
+def _consume_ticket(ticket: str, username: str) -> bool:
+    """校验并消费一次性 ticket（存在 + 用户匹配 + 未过期 → 用后即焚）"""
+    entry = _login_tickets.get(ticket)
+    if not entry:
+        return False
+    if entry[0] != username or time.time() > entry[1]:
+        _login_tickets.pop(ticket, None)
+        return False
+    del _login_tickets[ticket]
+    return True
+
 def _issue_web_session(db, user, request) -> str:
     """创建 Web 会话并返回会话 Token（login / verify-2fa 共用）"""
     # 获取客户端 IP
@@ -203,18 +263,28 @@ def _issue_web_session(db, user, request) -> str:
 
 @app.post("/api/auth/login")
 def login(req: LoginRequest, request: Request):
-    """Web 登录第一步：账号 + 密码。
-    未启用二次验证 → 直接返回会话 Token；已启用 → 返回 need_2fa，等第二步验证码。
+    """Web 登录第一步：账号 + 密码（B 路径）。
+    未启用二次验证 → 直接返回会话 Token；已启用 → 返回 need_2fa + 一次性 ticket，等第二步验证码。
     """
     db = SessionLocal()
     try:
+        code_only = _is_code_only(db)
         user = db.query(User).filter(User.username == req.username).first()
         if not user or not verify_password(req.password, user.password_hash):
+            # 仅验证码模式下:已绑定用户的密码错误计入该用户名 B 锁
+            # (未绑定用户为纯密码登录不参与锁;开关关闭时保持现状零行为变化)
+            if code_only and user and user.totp_enabled:
+                _b_fail(user.username)
             return JSONResponse(status_code=401, content={"detail": "账号或密码错误"})
 
-        # 已启用二次验证 → 第一步不发会话，返回 need_2fa
+        # 已启用二次验证 → 第一步不发会话，返回 need_2fa + 一次性 ticket（证明密码已验证）
         if user.totp_enabled and user.totp_secret:
-            return {"success": False, "need_2fa": True, "username": user.username}
+            if code_only and _b_locked(user.username):
+                return JSONResponse(status_code=429,
+                                    content={"detail": "该账号登录失败次数过多，已锁定 1 分钟，请稍后再试"})
+            ticket = secrets.token_hex(16)
+            _login_tickets[ticket] = [user.username, time.time() + TICKET_TTL]
+            return {"success": False, "need_2fa": True, "username": user.username, "ticket": ticket}
 
         session_token = _issue_web_session(db, user, request)
         return {
@@ -230,25 +300,102 @@ def login(req: LoginRequest, request: Request):
 class Verify2FARequest(PydanticBase):
     username: str
     code: str
+    ticket: str | None = None   # B 路径凭证(login 验密码后签发);仅验证码模式开关开启时必填
 
 @app.post("/api/auth/verify-2fa")
 def verify_2fa(req: Verify2FARequest, request: Request):
-    """登录第二步：6 位 TOTP 验证码 → 校验通过发放会话 Token"""
+    """登录第二步（B 路径）：6 位 TOTP 验证码 → 校验通过发放会话 Token。
+
+    仅验证码模式开启时要求携带 login 签发的一次性 ticket（证明密码已验证），
+    纯验证码登录请走 /api/auth/totp-login。
+    """
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.username == req.username).first()
         if not user or not user.totp_enabled or not user.totp_secret:
             return JSONResponse(status_code=401, content={"detail": "该账号未启用二次验证"})
+
+        code_only = _is_code_only(db)
+        if code_only:
+            # 仅验证码模式：B 路径必须持 ticket（否则任何人都能绕过密码直接试验证码）
+            if not req.ticket or not _consume_ticket(req.ticket, user.username):
+                return JSONResponse(status_code=401,
+                                    content={"detail": "请先通过账号密码验证（或改用纯验证码登录）"})
+            if _b_locked(user.username):
+                return JSONResponse(status_code=429,
+                                    content={"detail": "该账号登录失败次数过多，已锁定 1 分钟，请稍后再试"})
+
         if not pyotp.TOTP(user.totp_secret).verify(req.code.strip(), valid_window=1):
+            if code_only:
+                _b_fail(user.username)
             return JSONResponse(status_code=401, content={"detail": "验证码错误或已过期"})
 
         session_token = _issue_web_session(db, user, request)
+        # B 路径成功：该用户名 B 锁清零；管理员登录成功 → 重置全局 A 锁
+        if code_only:
+            _b_locks.pop(user.username, None)
+            if user.permission == "admin":
+                _clear_code_lock()
         return {
             "success": True,
             "username": user.username,
             "permission": user.permission,
             "token": session_token
         }
+    finally:
+        db.close()
+
+
+class TotpLoginRequest(PydanticBase):
+    code: str
+
+@app.post("/api/auth/totp-login")
+def totp_login(req: TotpLoginRequest, request: Request):
+    """纯验证码登录（A 路径）：只有 6 位验证码，无用户名/密码。
+    遍历所有已绑定 TOTP 的用户匹配验证码，匹配到谁就登录谁。
+    连续 A_FAIL_LIMIT 次错误 → 触发全局 A 锁（纯验证码渠道锁 30 分钟）。
+    """
+    db = SessionLocal()
+    try:
+        if not _is_code_only(db):
+            return JSONResponse(status_code=403, content={"detail": "仅验证码登录未开启"})
+        if _code_locked():
+            return JSONResponse(status_code=429,
+                                content={"detail": "纯验证码登录已锁定 30 分钟，请使用 用户名+密码+验证码 登录"})
+
+        code = req.code.strip()
+        users = db.query(User).filter(
+            User.totp_enabled == 1, User.totp_secret != ""
+        ).all()
+        for u in users:
+            if pyotp.TOTP(u.totp_secret).verify(code, valid_window=1):
+                _code_lock["fail"] = 0  # 成功 → 失败计数清零
+                session_token = _issue_web_session(db, u, request)
+                return {
+                    "success": True,
+                    "username": u.username,
+                    "permission": u.permission,
+                    "token": session_token
+                }
+
+        # 无匹配 → 全局失败计数
+        _code_lock["fail"] += 1
+        if _code_lock["fail"] >= A_FAIL_LIMIT:
+            _code_lock["until"] = time.time() + A_LOCK_SECONDS
+            _code_lock["fail"] = 0
+            return JSONResponse(status_code=429,
+                                content={"detail": "验证码错误次数过多，纯验证码登录已锁定 30 分钟，请使用 用户名+密码+验证码 登录"})
+        return JSONResponse(status_code=401, content={"detail": "验证码错误或已过期"})
+    finally:
+        db.close()
+
+
+@app.get("/api/auth/login-mode")
+def login_mode():
+    """登录页查询：是否启用仅验证码登录（决定默认表单）"""
+    db = SessionLocal()
+    try:
+        return {"code_only": _is_code_only(db)}
     finally:
         db.close()
 

@@ -228,6 +228,7 @@ location ^~ / {
 │   └── shared.py               # 🐍 Python SDK:零依赖,一行接入(set/get/list/heartbeat)
 ├── backend/                    # ⚙️ FastAPI 后端
 │   ├── main.py                 # 入口:路由挂载、Token 认证中间件、登录、WebSocket、定时任务
+│   ├── reset_admin.py          # 应急:重置管理员密码 / 清除 TOTP(服务器终端用)
 │   ├── config.py               # 配置读取(.env)
 │   ├── constants.py            # 内置常量(剪切板 key/设备,删除保护判断)
 │   ├── database.py             # SQLAlchemy 引擎 + 建表
@@ -391,7 +392,31 @@ location ^~ / {
 - **Web 会话**:登录后自动携带 `ws-` 会话 Token
 - **三级权限**:`read`(只读)/ `write`(读写)/ `admin`(全部)
 - 写操作(POST/PUT/DELETE/PATCH)要求 `write` 或 `admin`
-- 公开路径(免认证):`/api/health`、`/docs`、`/openapi.json`、`/redoc`、`/api/auth/login`、`/`、`/ws`
+- 公开路径(免认证):`/api/health`、`/docs`、`/openapi.json`、`/redoc`、`/api/auth/login`、`/api/auth/login-mode`、`/api/auth/totp-login`、`/`、`/ws`
+
+### 仅验证码登录(可选开关,设置页开启)
+
+开启后登录页**默认只需输入 6 位验证码**(免账号密码):
+
+| 用户 | 登录方式 |
+|---|---|
+| 已绑定 TOTP | 纯验证码(系统遍历匹配用户);或 用户名+密码+验证码(任何时候可用) |
+| 未绑定 TOTP | 照常密码登录 |
+| 开关关闭 | 全部照旧 |
+
+**安全锁定**(锁定状态内存存储,重启清零):
+
+- 纯验证码连续错 **5 次** → 纯验证码登录渠道全局锁定 **30 分钟**(用户名+密码+验证码 与密码登录不受影响);**管理员用 用户名+密码+验证码 登录成功即立即解锁**
+- 用户名+密码+验证码 连续失败 **5 次**(按用户名)→ 该用户名锁定 **1 分钟**
+- 一次性 ticket 机制:密码验证通过后才签发(5 分钟有效),验证码登录无法绕过密码
+
+**应急重置脚本**(忘记密码 / 手机验证器丢失 / 被锁死时,服务器终端执行):
+
+```bash
+cd ~/homelab-hub/backend
+venv/bin/python reset_admin.py
+# 交互式:输入用户名(默认 admin)、新密码、是否清除 TOTP → 自动踢出所有会话
+```
 
 ## 🐍 Python SDK
 

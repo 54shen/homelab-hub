@@ -10,6 +10,7 @@ const routerReplace = vi.hoisted(() => vi.fn())
 const msgSuccess = vi.hoisted(() => vi.fn())
 const msgInfo = vi.hoisted(() => vi.fn())
 const axiosPost = vi.hoisted(() => vi.fn())
+const axiosGet = vi.hoisted(() => vi.fn())
 
 // ---- mock naive-ui:渲染真实 DOM 的轻量 stub ----
 vi.mock('naive-ui', () => ({
@@ -49,8 +50,8 @@ vi.mock('naive-ui', () => ({
 
 vi.mock('vue-router', () => ({ useRouter: () => ({ replace: routerReplace }) }))
 
-// axios 只测 post(登录接口)
-vi.mock('axios', () => ({ default: { post: axiosPost } }))
+// axios:post(登录接口) + get(登录模式查询)
+vi.mock('axios', () => ({ default: { post: axiosPost, get: axiosGet } }))
 
 import Login from './Login.vue'
 
@@ -67,6 +68,9 @@ describe('Login.vue', () => {
     msgSuccess.mockReset()
     msgInfo.mockReset()
     axiosPost.mockReset()
+    axiosGet.mockReset()
+    // 默认:登录模式查询返回"未开启仅验证码登录"
+    axiosGet.mockResolvedValue({ data: { code_only: false } })
   })
 
   it('渲染登录表单', () => {
@@ -182,5 +186,75 @@ describe('Login.vue', () => {
     await codeInput.setValue('12ab3d')
     // onCodeInput 过滤非数字
     expect((codeInput.element as HTMLInputElement).value).toBe('123')
+  })
+
+  // ---- 仅验证码登录模式 ----
+
+  it('仅验证码模式:登录页默认只显示验证码输入框', async () => {
+    axiosGet.mockResolvedValue({ data: { code_only: true } })
+    const wrapper = mountLogin()
+    await flushPromises()
+
+    expect(wrapper.findAll('input')).toHaveLength(1)  // 只有验证码框
+    expect(wrapper.text()).toContain('已绑定验证码的账号,输入 6 位动态码即可登录')
+    expect(wrapper.text()).toContain('使用 用户名+密码 登录')
+  })
+
+  it('仅验证码模式:输入 6 位验证码 → 调 totp-login 并登录成功', async () => {
+    axiosGet.mockResolvedValue({ data: { code_only: true } })
+    axiosPost.mockResolvedValue({ data: { success: true, username: 'admin', token: 'ws-totp', permission: 'admin' } })
+    const wrapper = mountLogin()
+    await flushPromises()
+
+    await wrapper.find('input').setValue('123456')  // 满 6 位自动提交
+    await flushPromises()
+
+    expect(axiosPost).toHaveBeenCalledTimes(1)
+    expect(axiosPost.mock.calls[0][0]).toContain('/auth/totp-login')
+    expect(axiosPost.mock.calls[0][1]).toEqual({ code: '123456' })  // 无用户名密码
+    expect(localStorage.getItem('sc_token')).toBe('ws-totp')
+  })
+
+  it('仅验证码模式:被锁(429)→ 自动切到 用户名+密码 表单', async () => {
+    axiosGet.mockResolvedValue({ data: { code_only: true } })
+    axiosPost.mockRejectedValue({ response: { status: 429, data: { detail: '纯验证码登录已锁定 30 分钟' } } })
+    const wrapper = mountLogin()
+    await flushPromises()
+
+    await wrapper.find('input').setValue('123456')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('纯验证码登录已锁定 30 分钟')
+    // 已切换到标准表单(账号 + 密码输入框出现)
+    expect(wrapper.findAll('input')).toHaveLength(2)
+  })
+
+  it('仅验证码模式:未绑定用户可点链接切到密码登录', async () => {
+    axiosGet.mockResolvedValue({ data: { code_only: true } })
+    const wrapper = mountLogin()
+    await flushPromises()
+
+    await wrapper.find('a').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('input')).toHaveLength(2)  // 账号 + 密码
+  })
+
+  it('第二步:verify-2fa 请求携带 login 签发的一次性 ticket', async () => {
+    axiosPost
+      .mockResolvedValueOnce({ data: { success: false, need_2fa: true, username: 'admin', ticket: 'tk-abc' } })
+      .mockResolvedValueOnce({ data: { success: true, username: 'admin', token: 'ws-2fa', permission: 'admin' } })
+
+    const wrapper = mountLogin()
+    const inputs = wrapper.findAll('input')
+    await inputs[0].setValue('admin')
+    await inputs[1].setValue('admin123')
+    await wrapper.find('button').trigger('click')
+    await flushPromises()
+
+    await wrapper.findAll('input')[2].setValue('123456')
+    await flushPromises()
+
+    expect(axiosPost.mock.calls[1][0]).toContain('/auth/verify-2fa')
+    expect(axiosPost.mock.calls[1][1]).toMatchObject({ username: 'admin', code: '123456', ticket: 'tk-abc' })
   })
 })

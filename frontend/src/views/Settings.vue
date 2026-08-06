@@ -15,6 +15,21 @@
       </n-form>
     </n-card>
 
+    <!-- 登录方式:仅验证码登录开关 -->
+    <n-card title="登录方式" size="small" style="margin-bottom:16px">
+      <div class="login-mode-row">
+        <div class="login-mode-desc">
+          <p><b>仅验证码登录</b> —— 开启后,登录页默认只需输入手机 App 的 6 位验证码(免账号密码)。</p>
+          <p style="font-size:12px;color:var(--text-secondary);margin-top:6px">
+            已绑定验证码的用户凭验证码登录;未绑定的用户仍可密码登录。
+            连续输错 5 次验证码将锁定「纯验证码登录」30 分钟,期间可用 用户名+密码+验证码 登录,管理员登录成功即解锁。
+            连续输错 5 次则再锁定 1 分钟。锁定状态内存存储,重启服务自动清零。
+          </p>
+        </div>
+        <n-switch v-model:value="codeOnlyEnabled" size="medium" />
+      </div>
+    </n-card>
+
     <!-- 二次验证(TOTP) -->
     <n-card title="二次验证" size="small" style="margin-bottom:16px">
       <div v-if="!twofaEnabled" class="twofa-row">
@@ -191,18 +206,26 @@
 </template>
 
 <script setup lang="ts">
-import { h, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import {
   NButton, NCard, NDataTable, NDescriptions, NDescriptionsItem, NEmpty,
-  NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSpace, NUpload,
-  useMessage, type UploadFileInfo
+  NForm, NFormItem, NInput, NInputNumber, NModal, NPopconfirm, NSelect, NSpace, NSwitch,
+  NUpload, useMessage, type UploadFileInfo
 } from 'naive-ui'
 import { authApi, dashboardApi, settingsApi } from '../api'
 import http from '../api'
 import QRCode from 'qrcode'
+import { useUISetting } from '../composables/useUISetting'
 import type { DbStatus } from '../types'
 
 const message = useMessage()
+
+// ---- 登录方式:仅验证码登录开关(全局,存服务端,防抖同步) ----
+const codeOnlyStr = useUISetting('auth_code_only', '0')
+const codeOnlyEnabled = computed({
+  get: () => codeOnlyStr.value === '1',
+  set: (v: boolean) => { codeOnlyStr.value = v ? '1' : '0' }
+})
 
 // ---- 二次验证(TOTP) ----
 const twofaEnabled = ref(false)
@@ -584,6 +607,18 @@ onMounted(() => { loadUsers(); loadTokens(); loadSessions(); loadDbStatus(); loa
   color: var(--text-secondary);
   margin: 0 0 12px;
   max-width: 560px;
+  line-height: 1.6;
+}
+.login-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.login-mode-desc p {
+  font-size: 13px;
+  color: var(--text-primary);
+  margin: 0;
   line-height: 1.6;
 }
 .twofa-setup { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }

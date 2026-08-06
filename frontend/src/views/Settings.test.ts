@@ -123,6 +123,16 @@ vi.mock('naive-ui', () => ({
     }
   }),
   NSpace: defineComponent({ setup(_, { slots }) { return () => h('div', { class: 'n-space' }, slots.default?.()) } }),
+  NSwitch: defineComponent({
+    props: ['value'],
+    emits: ['update:value'],
+    setup(props, { emit }) {
+      return () => h('button', {
+        class: 'n-switch',
+        onClick: () => emit('update:value', !props.value)
+      })
+    }
+  }),
   NUpload: defineComponent({
     props: ['showFileList'],
     emits: ['change'],
