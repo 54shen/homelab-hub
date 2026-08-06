@@ -341,10 +341,15 @@ describe('Dashboard.vue', () => {
     expect(wrapper.find('.history-modal-stub').text()).toBe('pc.cpu')
   })
 
-  it('渲染剪切板面板(与变更动态并排)', async () => {
+  it('渲染剪切板面板(位于设备网格内,变更动态独立在底部)', async () => {
+    deviceApiMock.list.mockResolvedValue({ data: [pcDevice()] })
     const wrapper = mountPage()
     await flushPromises()
-    expect(wrapper.find('.clipboard-panel-stub').exists()).toBe(true)
-    expect(wrapper.find('.lower-grid').exists()).toBe(true)
+    // 剪切板在设备网格内(占 2×2),与设备卡片同层
+    const grid = wrapper.find('.device-grid')
+    expect(grid.find('.clipboard-panel-stub').exists()).toBe(true)
+    expect(grid.findAll('.device-card').length).toBe(1)
+    // 变更动态标题在最底部独立展示
+    expect(wrapper.find('.clipboard-panel-stub').element.parentElement!.className).toContain('device-grid')
   })
 })

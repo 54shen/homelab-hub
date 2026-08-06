@@ -14,6 +14,7 @@
 | **设备监控** | Agent 注册 + 心跳上报,实时查看 CPU / 内存 / 磁盘 / 音量,超时自动标记离线 |
 | **历史记录** | 所有 KV 变更留痕,支持 key/来源/时间筛选、数值趋势图、统计、CSV 导出 |
 | **实时推送** | WebSocket 双向实时,「变更动态」页零 API 请求,纯推送刷新 |
+| **剪切板** | 内置「剪切板.内容」key(不可删除),仪表盘一键复制内容,多端 WS 实时同步 |
 | **告警 & Webhook** | 规则引擎(阈值/变化/离线/过期)+ HTTP 回调,自动通知 |
 | **字段映射** | key → 中文显示名,全站生效(筛选下拉、表格、设备详情) |
 | **Home Assistant** | HA 实体状态一键同步为 KV 变量 |
@@ -228,6 +229,7 @@ location ^~ / {
 ├── backend/                    # ⚙️ FastAPI 后端
 │   ├── main.py                 # 入口:路由挂载、Token 认证中间件、登录、WebSocket、定时任务
 │   ├── config.py               # 配置读取(.env)
+│   ├── constants.py            # 内置常量(剪切板 key/设备,删除保护判断)
 │   ├── database.py             # SQLAlchemy 引擎 + 建表
 │   ├── models.py               # ORM 模型(11 张表)
 │   ├── schemas.py              # Pydantic 请求/响应模型
@@ -248,7 +250,8 @@ location ^~ / {
 │   ├── services/
 │   │   ├── scheduler.py        # 定时任务调度
 │   │   ├── cleanup.py          # 历史数据清理 + 设备离线检查
-│   │   └── alerts.py           # 告警检测引擎
+│   │   ├── alerts.py           # 告警检测引擎
+│   │   └── clipboard.py        # 剪切板内置实体幂等创建(启动时)
 │   └── data/                   # SQLite 数据库文件(不入库)
 ├── frontend/                   # 🎨 Vue 3 前端
 │   ├── index.html
@@ -263,6 +266,7 @@ location ^~ / {
 │       ├── types/index.ts      # TypeScript 类型定义
 │       ├── styles/global.css   # 主题(CSS 变量,浅色卡片风格)
 │       ├── composables/        # useWebSocket / useFieldLabels / useSorter / useUISetting
+│       ├── utils/clipboard.ts  # 剪切板 key 常量 + 主题/内容编解码
 │       ├── layouts/MainLayout.vue
 │       ├── components/         # 通用组件(见下方说明)
 │       └── views/              # 页面(11 个,见下方说明)
@@ -277,17 +281,18 @@ location ^~ / {
 | `AppSidebar / AppTopbar` | 侧边栏 + 顶栏(导航、主题、刷新设置) |
 | `StatCard` | 仪表盘统计卡片 |
 | `StatusBadge` | 在线/离线状态徽标 |
+| `ClipboardPanel` | 剪切板面板(主题+内容输入 / 实时历史 / 一键复制) |
 | `FilterBar` | 历史记录筛选栏(key/来源/时间,key 带字段映射 tooltip) |
 | `RecordsTable` | 历史记录表格(旧值删除线 → 新值高亮,分页页码折叠) |
-| `TrendChart` | ECharts 数值趋势折线图 |
-| `HistoryModal` | 单个 key 的历史弹窗(设备详情页使用) |
+| `TrendChart` | ECharts 趋势折线图(数值/时长/时间戳/开关阶梯,默认 48h 窗口) |
+| `HistoryModal` | 单个 key 的历史弹窗(值趋势 ⇄ 上报频率,粒度自适应,拖动扩展更早数据) |
 
 ### 页面一览
 
 | 分组 | 页面 | 路由 | 说明 |
 |---|---|---|---|
-| 概览 | 仪表盘 | `/dashboard` | 统计卡片 + 设备状态卡片,WS 实时刷新 |
-| 数据 | 变量管理 | `/variables` | KV 变量增删改查、批量、导入导出 |
+| 概览 | 仪表盘 | `/dashboard` | 统计卡片 + 设备状态(剪切板占 2×2 位)+ 变更动态,WS 实时刷新 |
+| 数据 | 变量管理 | `/variables` | KV 变量增删改查、批量、导入导出(内置剪切板不可删) |
 | 数据 | 字段映射 | `/mappings` | key → 中文显示名,全站生效 |
 | 数据 | 历史记录 | `/history` | 筛选 + 趋势图 + 自动刷新 + 分页 |
 | 数据 | 变更动态 | `/history-live` | 纯 WS 实时流,零 API 请求 |
@@ -317,11 +322,13 @@ location ^~ / {
 | GET | `/api/kv/export` | 导出全部变量 JSON |
 | POST | `/api/kv/import` | 导入 JSON(可合并/覆盖) |
 
+> 内置变量 `剪切板.内容` 删除会返回 403(单删与批量删都会跳过),导入/更新不受限。
+
 ### 历史记录
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/history` | 分页查询(key / source / 时间范围 / 排序) |
+| GET | `/api/history` | 分页查询(key / source / 时间范围 / value_search 搜内容 / 排序) |
 | GET | `/api/history/keys` | key 列表(计数 + 数值型标记,筛选下拉用) |
 | GET | `/api/history/sources` | 来源统计 |
 | GET | `/api/history/trend?key=` | 数值型 key 趋势点(超限自动抽稀,≤50000) |
@@ -418,6 +425,33 @@ Token 也支持环境变量:`SHARED_CENTER_URL` / `SHARED_CENTER_TOKEN`。
 
 配置见 `agent_config.jsonc`(支持 `//` 注释):`base_url`、`token`、`device_name`、`heartbeat_interval` 等。
 命令行参数 / 环境变量可覆盖配置文件(`--name`、`AGENT_NAME`、`SHARED_CENTER_TOKEN` 等)。
+
+## 📋 剪切板
+
+多端共享的局域网剪贴板:在仪表盘复制一段内容,任何一端(手机 / 电脑 / 平板)都能立刻看到并复制。
+
+**内置实体**(首次启动自动创建,不可删除,不出现在设备列表与统计中):
+
+| 实体 | 值 |
+|---|---|
+| 设备 | `剪切板`(type=clipboard,group=系统,完全隐藏) |
+| Key | `剪切板.内容`(type=string,保留 10 年) |
+
+**Value 格式**:JSON `{"t":"主题","c":"内容"}`,主题可选(为空时 `t` 为 `""`),与普通 key 完全一致 —— 支持 SDK / API 读写、历史记录页搜索、告警规则:
+
+```python
+from shared import Client
+client = Client(base_url="http://服务器IP:8000", token="sk-xxx")
+client.set("剪切板.内容", '{"t":"服务器告警","c":"CPU 超 90%,请检查"}')
+```
+
+**仪表盘操作**:
+- 输入主题(可选)+ 内容,`Enter` 发送(输入框内 `Ctrl/⌘+Enter` 换行)
+- 右侧实时历史(最近 20 条,WS 推送,多端秒级同步)
+- **搜索**:历史区顶部搜索框支持按主题/内容模糊搜索全部剪切板历史(防抖 300ms,最多 50 条结果;清空恢复实时列表)
+- 点击任意条目或复制按钮 → 内容复制到系统剪贴板(非 https 环境自动降级)
+
+**注意**:与普通 key 一样,内容完全相同时重复发送不会产生新历史(值未变则静默)。
 
 ## 🏠 Home Assistant 集成
 

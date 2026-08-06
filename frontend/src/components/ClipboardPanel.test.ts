@@ -236,13 +236,73 @@ describe('ClipboardPanel.vue', () => {
     expect(msgMock.success).toHaveBeenCalledWith('已复制')
   })
 
-  it('快捷键:Ctrl+Enter 触发发送', async () => {
+  it('快捷键:回车(无修饰键)触发发送', async () => {
     const wrapper = mountPanel()
     await flushPromises()
-    await wrapper.findAll('.n-input')[1].setValue('快捷键内容')
-    await wrapper.findAll('.n-input')[1].trigger('keydown', { ctrlKey: true, key: 'Enter' })
+    await wrapper.findAll('.n-input')[1].setValue('回车内容')
+    await wrapper.findAll('.n-input')[1].trigger('keydown', { key: 'Enter' })
     await flushPromises()
     expect(kvApiMock.set).toHaveBeenCalledTimes(1)
-    expect(kvApiMock.set).toHaveBeenCalledWith(expect.objectContaining({ value: '{"t":"","c":"快捷键内容"}' }))
+    expect(kvApiMock.set).toHaveBeenCalledWith(expect.objectContaining({ value: '{"t":"","c":"回车内容"}' }))
+  })
+
+  it('快捷键:Ctrl/⌘+Enter 不发送(保留换行默认行为)', async () => {
+    const wrapper = mountPanel()
+    await flushPromises()
+    await wrapper.findAll('.n-input')[1].setValue('多行内容')
+    await wrapper.findAll('.n-input')[1].trigger('keydown', { ctrlKey: true, key: 'Enter' })
+    await wrapper.findAll('.n-input')[1].trigger('keydown', { metaKey: true, key: 'Enter' })
+    await flushPromises()
+    expect(kvApiMock.set).not.toHaveBeenCalled()
+  })
+
+  it('搜索:输入关键词(防抖 300ms)→ 调 value_search 接口并替换列表', async () => {
+    historyApiMock.list
+      .mockResolvedValueOnce({ data: { items: [], total: 0 } })  // 初始加载
+      .mockResolvedValueOnce({ data: { items: [
+        histRow({ id: 5, new_value: '{"t":"购物","c":"买牛奶"}', changed_at: '2026-08-06 12:00:00' }),
+        histRow({ id: 3, new_value: '{"t":"","c":"牛奶到货"}', changed_at: '2026-08-06 11:00:00' }),
+      ], total: 2 } })
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.find('input[placeholder="搜索主题/内容…"]').setValue('牛奶')
+    await new Promise(r => setTimeout(r, 350))  // 等待防抖
+    await flushPromises()
+
+    expect(historyApiMock.list).toHaveBeenLastCalledWith({
+      key: CLIPBOARD_KEY, value_search: '牛奶', page_size: 50
+    })
+    const contents = wrapper.findAll('.cp-content').map(e => e.text())
+    expect(contents).toEqual(['买牛奶', '牛奶到货'])
+    // 标题进入搜索模式,显示结果数
+    expect(wrapper.text()).toContain('共 2 条结果')
+  })
+
+  it('搜索:搜索模式下 WS 推送被忽略;清空搜索恢复实时列表', async () => {
+    historyApiMock.list
+      .mockResolvedValueOnce({ data: { items: [], total: 0 } })  // 初始加载
+      .mockResolvedValueOnce({ data: { items: [histRow({ id: 9, new_value: '{"t":"","c":"命中"}' })], total: 1 } })  // 搜索
+      .mockResolvedValueOnce({ data: { items: [histRow({ id: 10, new_value: '{"t":"","c":"最新实时"}' })], total: 1 } })  // 清空后恢复
+    const wrapper = mountPanel()
+    await flushPromises()
+
+    await wrapper.find('input[placeholder="搜索主题/内容…"]').setValue('命中')
+    await new Promise(r => setTimeout(r, 350))
+    await flushPromises()
+    expect(wrapper.findAll('.cp-content').length).toBe(1)
+
+    // 搜索模式下 WS 推送不污染结果
+    wsHandler()('kv.changed', { key: CLIPBOARD_KEY, value: '{"t":"","c":"推送的新内容"}', changed_at: '2026-08-06 13:00:00' })
+    await nextTick()
+    expect(wrapper.findAll('.cp-content').length).toBe(1)
+
+    // 清空搜索 → 恢复实时模式(重新加载最近 20 条)
+    await wrapper.find('input[placeholder="搜索主题/内容…"]').setValue('')
+    await new Promise(r => setTimeout(r, 350))
+    await flushPromises()
+    expect(historyApiMock.list).toHaveBeenLastCalledWith({ key: CLIPBOARD_KEY, page_size: 20 })
+    expect(wrapper.findAll('.cp-content')[0].text()).toBe('最新实时')
+    expect(wrapper.text()).toContain('实时 · 1/20')
   })
 })

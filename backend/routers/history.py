@@ -109,8 +109,8 @@ def _chart_kind(vals):
     return kinds.pop() if kinds else ""
 
 
-def _base_query(q, key, search, prefix, suffix, source, start, end):
-    """拼装公共过滤条件。"""
+def _base_query(q, key, search, prefix, suffix, source, start, end, value_search=None):
+    """拼装公共过滤条件。value_search:模糊搜索新值(剪切板内容搜索用)。"""
     if key:
         q = q.filter(KvHistory.key == key)
     elif search:
@@ -125,6 +125,8 @@ def _base_query(q, key, search, prefix, suffix, source, start, end):
         q = q.filter(KvHistory.changed_at >= start)
     if end:
         q = q.filter(KvHistory.changed_at <= end)
+    if value_search:
+        q = q.filter(KvHistory.new_value.contains(value_search))
     return q
 
 
@@ -137,19 +139,20 @@ def list_history(
     source: str | None = Query(None, description="精确匹配来源"),
     start: str | None = Query(None, description="起始时间 YYYY-MM-DD HH:MM:SS"),
     end: str | None = Query(None, description="结束时间"),
+    value_search: str | None = Query(None, description="模糊搜索新值内容(剪切板搜索等)"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=50000),
     order: str = Query("desc", pattern="^(asc|desc)$"),
     before_id: int | None = Query(None, description="游标分页:只返回 id 小于该值的记录(配合 id 排序)。实时写入下翻页不重复,推荐前端翻页使用"),
     db: Session = Depends(get_db)
 ):
-    """分页查询历史记录。key 精确匹配时用 ?key=，模糊搜索用 ?search=。
+    """分页查询历史记录。key 精确匹配时用 ?key=，模糊搜索用 ?search=，搜索内容用 ?value_search=。
 
     游标分页(before_id):返回「比上一页最后一条(id=before_id)更早」的 page_size 条,
     新数据写入不会改变已翻过页的边界 → 翻页永不重复、永不遗漏。
     OFFSET 分页(page)保留用于跨页跳转等场景。
     """
-    q = _base_query(db.query(KvHistory), key, search, prefix, suffix, source, start, end)
+    q = _base_query(db.query(KvHistory), key, search, prefix, suffix, source, start, end, value_search)
 
     total = q.count()
     if before_id is not None:
@@ -354,7 +357,7 @@ def export_history(
     import io, csv
 
     # 参数顺序与 _base_query(q, key, search, prefix, suffix, source, start, end) 严格对应
-    q = _base_query(db.query(KvHistory), key, search, None, None, source, start, end)
+    q = _base_query(db.query(KvHistory), key, search, None, None, source, start, end, None)
     rows = q.order_by(KvHistory.changed_at.desc()).all()
 
     buf = io.StringIO()

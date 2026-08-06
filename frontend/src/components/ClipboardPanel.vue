@@ -3,7 +3,7 @@
 // 剪切板面板 — 仪表盘专用:左侧输入(主题可选+内容),右侧实时历史(最近 20 条)
 // 多端共享:任一端发送 → 后端广播 kv.changed → 所有端实时更新
 // ============================================================
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { NButton, NEmpty, NInput, NTag, useMessage } from 'naive-ui'
 import { historyApi, kvApi } from '../api'
 import { useWebSocket } from '../composables/useWebSocket'
@@ -12,12 +12,18 @@ import {
 } from '../utils/clipboard'
 
 const MAX_HISTORY = 20
+const MAX_SEARCH = 50  // 搜索结果上限(全部历史中匹配的前 50 条)
 
 const message = useMessage()
 const topic = ref('')
 const content = ref('')
 const sending = ref(false)
 const contentInput = ref<HTMLTextAreaElement | null>(null)
+
+// ---- 搜索:防抖 300ms,空关键词 = 实时模式(最近 20 条) ----
+const searchQuery = ref('')
+const searchTotal = ref(0)
+const isSearching = computed(() => searchQuery.value.trim().length > 0)
 
 interface ClipItem {
   uid: string
@@ -52,6 +58,24 @@ async function loadData() {
   } catch { /* 后端未响应,保持上次数据 */ }
 }
 
+async function doSearch(q: string) {
+  try {
+    const r = await historyApi.list({ key: CLIPBOARD_KEY, value_search: q, page_size: MAX_SEARCH })
+    items.value = (r.data?.items ?? []).map(row => toItem(row.new_value, row.changed_at, row.source))
+    searchTotal.value = r.data?.total ?? 0
+  } catch { /* 后端未响应 */ }
+}
+
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+watch(searchQuery, (q) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(async () => {
+    const t = q.trim()
+    if (t) await doSearch(t)
+    else await loadData()  // 清空搜索 → 恢复实时最近 20 条
+  }, 300)
+})
+
 // 发送后拉最新 1 条合并:覆盖 WS 断开、值未变静默、与 WS 回显竞态三种场景
 async function loadLatestAndMerge() {
   try {
@@ -74,7 +98,8 @@ async function send() {
       source: `${username}(Web)`,
       retention_days: CLIPBOARD_RETENTION_DAYS,
     })
-    await loadLatestAndMerge()
+    // 搜索模式下不合并(新条目未必匹配当前关键词),仅实时模式合并
+    if (!isSearching.value) await loadLatestAndMerge()
     topic.value = ''
     content.value = ''
     await nextTick()
@@ -120,6 +145,8 @@ onMounted(async () => {
   await loadData()
   cleanupWs = on((event, data: any) => {
     if (event === 'kv.changed' && data?.key === CLIPBOARD_KEY) {
+      // 搜索模式下忽略实时推送(新条目未必匹配当前关键词,避免污染搜索结果)
+      if (isSearching.value) return
       pushItem(toItem(String(data.value ?? ''), data.changed_at || '', data.source))
     }
   })
@@ -147,22 +174,35 @@ onUnmounted(() => {
         type="textarea"
         :rows="5"
         placeholder="要复制的内容…"
-        @keydown.ctrl.enter="send"
-        @keydown.meta.enter="send"
+        @keydown.enter.exact.prevent="send"
       />
       <div class="cp-actions">
-        <span class="cp-hint">Ctrl/⌘ + Enter 快速发送</span>
+        <span class="cp-hint">Enter 发送 · Ctrl/⌘ + Enter 换行</span>
         <n-button size="small" type="primary" :loading="sending" @click="send">
           发送
         </n-button>
       </div>
     </div>
 
-    <!-- 右侧:实时历史 -->
+    <!-- 右侧:实时历史(支持内容搜索) -->
     <div class="cp-history-area">
+      <div class="cp-search-row">
+        <n-input
+          v-model:value="searchQuery"
+          size="small"
+          placeholder="搜索主题/内容…"
+          clearable
+          class="cp-search-input"
+        />
+        <span v-if="isSearching" class="cp-search-info">
+          共 {{ searchTotal }} 条结果
+        </span>
+      </div>
       <h2 class="cp-title">
         剪切板历史
-        <span class="cp-live">实时 · {{ items.length }}/{{ MAX_HISTORY }}</span>
+        <span class="cp-live">
+          {{ isSearching ? `搜索「${searchQuery.trim()}」` : `实时 · ${items.length}/${MAX_HISTORY}` }}
+        </span>
       </h2>
       <n-empty v-if="items.length === 0" description="暂无剪切板记录" class="cp-empty" />
       <div v-else class="cp-list">
@@ -236,6 +276,23 @@ onUnmounted(() => {
   min-width: 0;
   border-left: 1px solid var(--border-light);
   padding-left: var(--gap-md);
+}
+
+.cp-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.cp-search-input {
+  flex: 1;
+}
+
+.cp-search-info {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .cp-empty {

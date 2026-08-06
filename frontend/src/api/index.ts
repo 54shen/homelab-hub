@@ -176,6 +176,8 @@ export interface HistoryListParams {
   source?: string
   start?: string
   end?: string
+  /** 模糊搜索新值内容(剪切板内容搜索等) */
+  value_search?: string
   page?: number
   page_size?: number
   order?: 'asc' | 'desc'

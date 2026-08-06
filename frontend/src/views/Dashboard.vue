@@ -41,9 +41,11 @@
       />
     </div>
 
-    <!-- 设备卡片 -->
+    <!-- 设备状态:剪切板占 2×2 设备位,设备卡片紧随其后 -->
     <h2 style="margin:24px 0 12px;font-size:16px;font-weight:600;color:var(--text-primary)">设备状态</h2>
-    <div v-if="devices.length > 0" class="device-grid">
+    <div class="device-grid">
+      <ClipboardPanel class="clipboard-in-grid" />
+      <template v-if="devices.length > 0">
       <div
         v-for="d in devices"
         :key="d.id"
@@ -103,35 +105,29 @@
           <span class="dc-heartbeat">{{ formatRelative(d.last_heartbeat) }}</span>
         </div>
       </div>
+      </template>
     </div>
-    <n-empty v-else description="暂无设备" style="margin-top:20px" />
+    <n-empty v-if="devices.length === 0" description="暂无设备" style="margin-top:20px" />
 
-    <!-- 剪切板 + 变更动态 并排(窄屏折叠为单列) -->
-    <div class="lower-grid">
-      <ClipboardPanel />
-
-      <!-- 变更动态:WS 实时,最多 20 条,旧数据直接抛弃 -->
-      <div class="lower-right">
-        <h2 style="margin:0 0 12px;font-size:16px;font-weight:600;color:var(--text-primary)">
-          变更动态
-          <span style="font-size:12px;font-weight:400;color:var(--text-secondary);margin-left:8px">
-            <span class="live-dot"></span> 实时 · {{ liveChanges.length }}/{{ MAX_LIVE }}
-          </span>
-        </h2>
-        <n-data-table
-          :columns="liveColumns"
-          :data="liveChanges"
-          :row-key="(row: any) => row.uid"
-          :bordered="false"
-          size="small"
-          style="background:var(--bg-card);border-radius:var(--radius-lg);box-shadow:var(--shadow-card)"
-        >
-          <template #empty>
-            <span style="color:var(--text-secondary);font-size:13px">等待实时数据…(KV 变更会实时出现在这里)</span>
-          </template>
-        </n-data-table>
-      </div>
-    </div>
+    <!-- 变更动态:WS 实时,最多 20 条,旧数据直接抛弃 -->
+    <h2 style="margin:24px 0 12px;font-size:16px;font-weight:600;color:var(--text-primary)">
+      变更动态
+      <span style="font-size:12px;font-weight:400;color:var(--text-secondary);margin-left:8px">
+        <span class="live-dot"></span> 实时 · {{ liveChanges.length }}/{{ MAX_LIVE }}
+      </span>
+    </h2>
+    <n-data-table
+      :columns="liveColumns"
+      :data="liveChanges"
+      :row-key="(row: any) => row.uid"
+      :bordered="false"
+      size="small"
+      style="background:var(--bg-card);border-radius:var(--radius-lg);box-shadow:var(--shadow-card)"
+    >
+      <template #empty>
+        <span style="color:var(--text-secondary);font-size:13px">等待实时数据…(KV 变更会实时出现在这里)</span>
+      </template>
+    </n-data-table>
 
     <!-- 历史记录弹窗 -->
     <HistoryModal v-model:show="showHistory" :key-prop="historyKey" />
@@ -451,16 +447,18 @@ onUnmounted(() => {
 }
 .ha-count { font-size: 12px; color: var(--text-secondary); }
 
-/* ── 剪切板 + 变更动态 并排 ── */
-.lower-grid {
-  display: grid;
-  grid-template-columns: 5fr 7fr;
-  gap: var(--gap-md);
-  margin-top: 24px;
-  align-items: start;
+/* ── 剪切板卡片:固定在左上角占 2×2 设备位 ──
+   其余设备按 row-major 自动排列:先填剪切板右侧的列,
+   右侧排满后再从下一行接着排(默认 auto-placement 行为) */
+.clipboard-in-grid {
+  grid-column: 1 / 3;
+  grid-row: 1 / 3;
 }
-@media (max-width: 1100px) {
-  .lower-grid { grid-template-columns: 1fr; }
+@media (max-width: 900px) {
+  .clipboard-in-grid {
+    grid-column: auto;
+    grid-row: auto;
+  }
 }
 
 /* ── 变更动态 ── */

@@ -253,6 +253,29 @@ def test_history_cursor_with_filters(client, admin_headers):
     assert ids[0] == 2         # a.k2(10:01 更新的那条,id 更大)
 
 
+def test_history_value_search(client, admin_headers):
+    """value_search:模糊搜索新值内容(剪切板内容搜索用)"""
+    _seed(client, admin_headers, [
+        dict(key="剪切板.内容", old_value=None, new_value='{"t":"购物","c":"买牛奶和鸡蛋"}', source="a", changed_at="2026-08-01 10:00:00"),
+        dict(key="剪切板.内容", old_value=None, new_value='{"t":"","c":"服务器 CPU 高"}', source="a", changed_at="2026-08-01 10:01:00"),
+        dict(key="t.v", old_value=None, new_value="42", source="b", changed_at="2026-08-01 10:02:00"),
+    ])
+    # 命中内容(JSON 内文本可搜)
+    r = client.get("/api/history", params={"key": "剪切板.内容", "value_search": "牛奶"}, headers=admin_headers)
+    body = r.json()
+    assert body["total"] == 1
+    assert body["items"][0]["new_value"] == '{"t":"购物","c":"买牛奶和鸡蛋"}'
+    # 主题也可搜
+    r = client.get("/api/history", params={"key": "剪切板.内容", "value_search": "购物"}, headers=admin_headers)
+    assert r.json()["total"] == 1
+    # 不传 value_search → 全部
+    r = client.get("/api/history", params={"key": "剪切板.内容"}, headers=admin_headers)
+    assert r.json()["total"] == 2
+    # 未命中
+    r = client.get("/api/history", params={"key": "剪切板.内容", "value_search": "不存在的内容"}, headers=admin_headers)
+    assert r.json()["total"] == 0
+
+
 def test_history_export_csv(client, admin_headers):
     _seed(client, admin_headers, [
         dict(key="e.v", old_value="1", new_value="2", source="agent", changed_at="2026-08-01 10:00:00"),
