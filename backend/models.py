@@ -165,3 +165,12 @@ class SystemLog(Base):
     message = Column(String(512), default="")
     detail = Column(Text, nullable=True)
     created_at = Column(String(32), default=_now)
+
+
+# ---- TOTP 展示器表(单行:管理员录入的 TOTP 密钥,仪表盘实时展示验证码) ----
+class TotpDisplay(Base):
+    __tablename__ = "totp_display"
+
+    id = Column(Integer, primary_key=True)          # 恒为 1,单行
+    secret = Column(String(128), default="")        # Base32 密钥
+    updated_at = Column(String(32), default=_now)

@@ -10,7 +10,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 // http 默认导出(Settings 直接用它请求 /users /tokens /sessions /auth/password)
 const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() }))
 const authApiMock = vi.hoisted(() => ({ twofaStatus: vi.fn(), twofaSetup: vi.fn(), twofaConfirm: vi.fn(), twofaDisable: vi.fn() }))
-const dashboardApiMock = vi.hoisted(() => ({ dbStatus: vi.fn() }))
+const dashboardApiMock = vi.hoisted(() => ({ dbStatus: vi.fn(), totpSecret: vi.fn() }))
 const settingsApiMock = vi.hoisted(() => ({ exportBackup: vi.fn(), restoreBackup: vi.fn() }))
 const qrMock = vi.hoisted(() => vi.fn(() => Promise.resolve('data:image/png;base64,QR')))
 const clipboardMock = vi.hoisted(() => vi.fn())
@@ -332,6 +332,25 @@ describe('Settings.vue', () => {
     expect(msgSuccess).toHaveBeenCalledWith('二次验证已关闭')
     // 回到未启用状态
     expect(twofaCard.text()).toContain('启用')
+  })
+
+  it('TOTP 展示器:空密钥警告,保存调用接口并清空输入', async () => {
+    const wrapper = mountPage()
+    await flushPromises()
+    const totpCard = cardByTitle(wrapper, 'TOTP 展示器')
+    const input = totpCard.find('input')
+    // 空密钥 → 警告
+    await totpCard.findAll('button').find((b) => b.text().includes('保存'))!.trigger('click')
+    await flushPromises()
+    expect(msgWarning).toHaveBeenCalledWith('请输入密钥')
+    expect(dashboardApiMock.totpSecret).not.toHaveBeenCalled()
+    // 合法保存
+    await input.setValue('JBSWY3DPEHPK3PXP')
+    await totpCard.findAll('button').find((b) => b.text().includes('保存'))!.trigger('click')
+    await flushPromises()
+    expect(dashboardApiMock.totpSecret).toHaveBeenCalledWith('JBSWY3DPEHPK3PXP')
+    expect(msgSuccess).toHaveBeenCalledWith('TOTP 展示器已更新')
+    expect((input.element as HTMLInputElement).value).toBe('')
   })
 
   it('新增用户:校验 → 保存调用接口并关闭弹窗', async () => {

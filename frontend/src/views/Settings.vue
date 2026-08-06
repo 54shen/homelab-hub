@@ -30,6 +30,28 @@
       </div>
     </n-card>
 
+    <!-- TOTP 展示器:管理员录入密钥,仪表盘实时展示验证码 -->
+    <n-card title="TOTP 展示器" size="small" style="margin-bottom:16px">
+      <div class="login-mode-row">
+        <div class="login-mode-desc">
+          <p>录入一个 <b>Base32 TOTP 密钥</b>(如路由器 / 服务 / 网站的二次验证密钥),仪表盘将实时展示当前 6 位验证码,免掏手机。</p>
+          <p style="font-size:12px;color:var(--text-secondary);margin-top:6px">
+            密钥单独保存,不作为 KV 变量;仅管理员可录入/修改;每 30 秒自动刷新。
+          </p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <n-input
+            v-model:value="totpSecretInput"
+            placeholder="输入 Base32 密钥"
+            size="small"
+            style="width:240px"
+            @keyup.enter="saveTotpSecret"
+          />
+          <n-button size="small" type="primary" :loading="totpSaving" @click="saveTotpSecret">保存</n-button>
+        </div>
+      </div>
+    </n-card>
+
     <!-- 二次验证(TOTP) -->
     <n-card title="二次验证" size="small" style="margin-bottom:16px">
       <div v-if="!twofaEnabled" class="twofa-row">
@@ -219,6 +241,28 @@ import { useUISetting } from '../composables/useUISetting'
 import type { DbStatus } from '../types'
 
 const message = useMessage()
+
+// ---- TOTP 展示器:管理员录入密钥(仪表盘实时展示验证码) ----
+const totpSecretInput = ref('')
+const totpSaving = ref(false)
+
+async function saveTotpSecret() {
+  const secret = totpSecretInput.value.trim()
+  if (!secret) {
+    message.warning('请输入密钥')
+    return
+  }
+  totpSaving.value = true
+  try {
+    await dashboardApi.totpSecret(secret)
+    message.success('TOTP 展示器已更新')
+    totpSecretInput.value = ''
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    totpSaving.value = false
+  }
+}
 
 // ---- 登录方式:仅验证码登录开关(全局,存服务端,防抖同步) ----
 const codeOnlyStr = useUISetting('auth_code_only', '0')

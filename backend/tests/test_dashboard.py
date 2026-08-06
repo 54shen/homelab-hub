@@ -56,3 +56,50 @@ def test_timeline_contains_device_heartbeat(client, admin_headers):
     assert r.status_code == 200
     events = r.json()["events"]
     assert any(e["title"] == "TL 心跳" and e["description"] == "离线" for e in events)
+
+
+# ---- TOTP 展示器 ----
+
+def test_totp_code_not_configured(client, admin_headers):
+    """未配置密钥 → configured=False"""
+    r = client.get("/api/dashboard/totp-code", headers=admin_headers)
+    assert r.json() == {"configured": False}
+
+
+def test_totp_secret_admin_only(client, admin_headers):
+    """录入密钥仅 admin 可操作:write 用户 → 403"""
+    import pyotp
+    secret = pyotp.random_base32()
+    # 创建 write 用户并登录
+    assert client.post("/api/users", json={"username": "tw", "password": "pass1234", "permission": "write"},
+                       headers=admin_headers).status_code == 200
+    r = client.post("/api/auth/login", json={"username": "tw", "password": "pass1234"})
+    write_headers = {"Authorization": f"Bearer {r.json()['token']}"}
+
+    assert client.put("/api/dashboard/totp-secret", json={"secret": secret},
+                      headers=write_headers).status_code == 403
+    # admin 可以
+    assert client.put("/api/dashboard/totp-secret", json={"secret": secret},
+                      headers=admin_headers).status_code == 200
+
+
+def test_totp_code_matches_pyotp(client, admin_headers):
+    """配置密钥后:验证码与 pyotp 一致,剩余秒数在 0-30 内"""
+    import pyotp
+    secret = pyotp.random_base32()
+    assert client.put("/api/dashboard/totp-secret", json={"secret": secret},
+                      headers=admin_headers).status_code == 200
+
+    body = client.get("/api/dashboard/totp-code", headers=admin_headers).json()
+    assert body["configured"] is True
+    assert body["code"] == pyotp.TOTP(secret).now()
+    assert len(body["code"]) == 6
+    assert 0 <= body["period_remaining"] < 30
+
+
+def test_totp_secret_invalid(client, admin_headers):
+    """非法 Base32 密钥 → 400"""
+    r = client.put("/api/dashboard/totp-secret", json={"secret": "!!!not-base32!!!"},
+                   headers=admin_headers)
+    assert r.status_code == 400
+    assert "密钥格式无效" in r.json()["detail"]

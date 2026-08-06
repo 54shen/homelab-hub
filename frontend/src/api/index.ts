@@ -120,6 +120,14 @@ export const dashboardApi = {
   /** 时间线事件 */
   timeline(limit = 20) {
     return http.get<{ events: { time: string; icon: string; title: string; description: string; color: string }[] }>('/dashboard/timeline', { params: { limit } })
+  },
+  /** TOTP 展示器:当前验证码(未配置 → configured=false) */
+  totpCode() {
+    return http.get<{ configured: boolean; code?: string; period_remaining?: number }>('/dashboard/totp-code')
+  },
+  /** TOTP 展示器:管理员录入密钥(仅 admin) */
+  totpSecret(secret: string) {
+    return http.put<ApiResponse>('/dashboard/totp-secret', { secret })
   }
 }
 

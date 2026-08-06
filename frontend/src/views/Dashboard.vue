@@ -32,13 +32,19 @@
         :secondary="stats.public_ip"
         label="网络状态"
       />
-      <StatCard
-        icon="pulse-outline"
-        icon-bg="rgba(34, 197, 94, 0.1)"
-        icon-color="#22C55E"
-        :primary="stats.system_health + '%'"
-        label="系统健康度"
-      />
+      <!-- TOTP 验证码实时展示(密钥在 设置 → TOTP 展示器 录入) -->
+      <div class="totp-card">
+        <span class="totp-label">TOTP 验证码</span>
+        <template v-if="totpConfigured">
+          <span class="totp-code" :title="'每 30 秒刷新'">{{ totpCode }}</span>
+          <div class="totp-progress">
+            <div class="totp-fill" :style="{ width: (totpRemaining / 30 * 100) + '%' }"></div>
+          </div>
+        </template>
+        <template v-else>
+          <span class="totp-empty">未配置</span>
+        </template>
+      </div>
     </div>
 
     <!-- 设备状态:剪切板占 2×2 设备位,设备卡片紧随其后 -->
@@ -151,6 +157,29 @@ const stats = ref<DashboardStats>({
   total_devices: 0, online_devices: 0, total_services: 0,
   running_services: 0, total_keys: 0, network_status: 'offline', public_ip: '--', system_health: 100
 })
+
+// ---- TOTP 验证码实时展示:每 5 秒轮询接口刷新,期间本地秒级倒计时 ----
+const totpConfigured = ref(false)
+const totpCode = ref('')
+const totpRemaining = ref(0)
+let totpTimer: ReturnType<typeof setInterval> | null = null
+
+async function loadTotpCode() {
+  try {
+    const r = await dashboardApi.totpCode()
+    totpConfigured.value = !!r.data?.configured
+    if (r.data?.configured) {
+      totpCode.value = r.data.code
+      totpRemaining.value = r.data.period_remaining ?? 0
+    }
+  } catch { /* 后端未响应 */ }
+}
+
+function totpTick() {
+  if (!totpConfigured.value) return
+  totpRemaining.value -= 1
+  if (totpRemaining.value <= 0) loadTotpCode()  // 到周期边界立即刷新新码
+}
 const devices = ref<Device[]>([])
 const showHistory = ref(false)
 const historyKey = ref('')
@@ -316,6 +345,8 @@ let cleanupWs: (() => void) | null = null
 
 onMounted(async () => {
   await loadData()
+  await loadTotpCode()
+  totpTimer = setInterval(totpTick, 1000)  // 本地秒级倒计时,周期边界自动刷新
   cleanupWs = on((event, data: any) => {
     if (event === 'device.heartbeat') {
       const dev = devices.value.find(d => d.name === data.name)
@@ -342,6 +373,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   cleanupWs?.()
+  if (totpTimer) clearInterval(totpTimer)
 })
 </script>
 
@@ -446,6 +478,48 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .ha-count { font-size: 12px; color: var(--text-secondary); }
+
+/* ── TOTP 验证码卡片 ── */
+.totp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-card);
+}
+.totp-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.totp-code {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  color: var(--color-info);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.totp-empty {
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+.totp-progress {
+  height: 4px;
+  background: var(--border-light);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.totp-fill {
+  height: 100%;
+  background: var(--color-info);
+  border-radius: var(--radius-full);
+  transition: width 1s linear;
+}
 
 /* ── 剪切板卡片:固定在左上角占 2×2 设备位 ──
    其余设备按 row-major 自动排列:先填剪切板右侧的列,

@@ -8,7 +8,7 @@ import { defineComponent, h } from 'vue'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const dashboardApiMock = vi.hoisted(() => ({ stats: vi.fn(), recentChanges: vi.fn() }))
+const dashboardApiMock = vi.hoisted(() => ({ stats: vi.fn(), recentChanges: vi.fn(), totpCode: vi.fn() }))
 const deviceApiMock = vi.hoisted(() => ({ list: vi.fn(), variables: vi.fn() }))
 // 捕获 useWebSocket 注册的 on 回调,用于模拟 WS 消息
 const wsOnMock = vi.hoisted(() => vi.fn(() => () => {}))
@@ -134,9 +134,10 @@ describe('Dashboard.vue', () => {
     deviceApiMock.list.mockResolvedValue({ data: [] })
     deviceApiMock.variables.mockResolvedValue({ data: [] })
     dashboardApiMock.recentChanges.mockResolvedValue({ data: [] })
+    dashboardApiMock.totpCode.mockResolvedValue({ data: { configured: false } })
   })
 
-  it('挂载后加载统计并渲染 4 张统计卡片', async () => {
+  it('挂载后加载统计并渲染 3 张统计卡片 + TOTP 卡片', async () => {
     deviceApiMock.list.mockResolvedValue({ data: [pcDevice()] })
     const wrapper = mountPage()
     await flushPromises()
@@ -144,17 +145,27 @@ describe('Dashboard.vue', () => {
     expect(dashboardApiMock.stats).toHaveBeenCalled()
     expect(deviceApiMock.list).toHaveBeenCalled()
     expect(dashboardApiMock.recentChanges).toHaveBeenCalledWith(20)
+    expect(dashboardApiMock.totpCode).toHaveBeenCalled()
 
     const cards = wrapper.findAll('.stat-card')
-    expect(cards).toHaveLength(4)
+    expect(cards).toHaveLength(3)  // 系统健康度已移除
     expect(cards[0].text()).toContain('在线设备')
     expect(cards[0].text()).toContain('3')
     expect(cards[0].text()).toContain('/ 5')
     expect(cards[1].text()).toContain('设备 / 变量')
     expect(cards[2].text()).toContain('网络状态')
     expect(cards[2].text()).toContain('正常')
-    expect(cards[3].text()).toContain('系统健康度')
-    expect(cards[3].text()).toContain('98%')
+    // TOTP 卡片:未配置时提示
+    expect(wrapper.find('.totp-card').exists()).toBe(true)
+    expect(wrapper.find('.totp-card').text()).toContain('未配置')
+    expect(wrapper.text()).not.toContain('系统健康度')
+  })
+
+  it('TOTP 卡片:配置后显示 6 位验证码', async () => {
+    dashboardApiMock.totpCode.mockResolvedValue({ data: { configured: true, code: '123456', period_remaining: 20 } })
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.find('.totp-code').text()).toBe('123456')
   })
 
   it('无设备时显示空状态', async () => {
