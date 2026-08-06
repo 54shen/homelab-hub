@@ -239,6 +239,90 @@ def test_users_crud(client, admin_headers):
     assert not any(u["username"] == "u1" for u in users)
 
 
+def _login_session(client, username, password):
+    """登录获取 Web 会话 headers(用于模拟非 admin 操作者)"""
+    r = client.post("/api/auth/login", json={"username": username, "password": password})
+    assert r.json()["success"] is True
+    return {"Authorization": f"Bearer {r.json()['token']}"}
+
+
+def test_user_management_admin_only(client, admin_headers):
+    """用户管理(增/删/改/改权限)仅 admin 可操作:write 用户 → 403(堵提权链)"""
+    # 创建 write 用户并登录
+    assert client.post("/api/users", json={"username": "w_user", "password": "pass1234", "permission": "write"},
+                       headers=admin_headers).status_code == 200
+    write_headers = _login_session(client, "w_user", "pass1234")
+
+    # write 用户不能创建用户/改权限/改密码/删除
+    assert client.post("/api/users", json={"username": "evil", "password": "pass1234"},
+                       headers=write_headers).status_code == 403
+    assert client.put("/api/users/1", json={"permission": "admin"}, headers=write_headers).status_code == 403
+    assert client.put("/api/users/1", json={"password": "hacked"}, headers=write_headers).status_code == 403
+    assert client.delete("/api/users/1", headers=write_headers).status_code == 403
+
+    # 普通 read 用户也不能
+    assert client.post("/api/users", json={"username": "r_user", "password": "pass1234", "permission": "read"},
+                       headers=admin_headers).status_code == 200
+    read_headers = _login_session(client, "r_user", "pass1234")
+    assert client.post("/api/users", json={"username": "evil2", "password": "pass1234"},
+                       headers=read_headers).status_code == 403
+
+
+def test_admin_cannot_be_deleted(client, admin_headers):
+    """管理员账号完全禁止删除(含最后一个 admin)"""
+    # 创建第二个 admin 也不能删
+    assert client.post("/api/users", json={"username": "admin2", "password": "pass1234", "permission": "admin"},
+                       headers=admin_headers).status_code == 200
+    users = client.get("/api/users", headers=admin_headers).json()
+    admin2_id = next(u["id"] for u in users if u["username"] == "admin2")
+
+    r = client.delete(f"/api/users/{admin2_id}", headers=admin_headers)
+    assert r.status_code == 403
+    assert "不允许删除" in r.json()["detail"]
+    # 删默认 admin 同样被拒
+    admin_id = next(u["id"] for u in users if u["username"] == "admin")
+    assert client.delete(f"/api/users/{admin_id}", headers=admin_headers).status_code == 403
+    # 两个都还在
+    users = client.get("/api/users", headers=admin_headers).json()
+    assert any(u["username"] == "admin" for u in users)
+    assert any(u["username"] == "admin2" for u in users)
+
+
+def test_admin_cannot_change_own_password_in_user_mgmt(client, admin_headers):
+    """用户管理里不能改自己的密码(走「修改密码」旧密码模块);改其他用户密码可以"""
+    # 创建普通用户
+    assert client.post("/api/users", json={"username": "victim", "password": "oldpass1"},
+                       headers=admin_headers).status_code == 200
+    users = client.get("/api/users", headers=admin_headers).json()
+    victim_id = next(u["id"] for u in users if u["username"] == "victim")
+    admin_id = next(u["id"] for u in users if u["username"] == "admin")
+
+    # 改自己密码 → 403(提示走修改密码模块)
+    r = client.put(f"/api/users/{admin_id}", json={"password": "newpass9"}, headers=admin_headers)
+    assert r.status_code == 403
+    assert "修改密码" in r.json()["detail"]
+    # 旧密码仍有效
+    assert client.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()["success"] is True
+
+    # 改其他用户密码 → 200,新密码生效、旧密码失效
+    r = client.put(f"/api/users/{victim_id}", json={"password": "newpass9"}, headers=admin_headers)
+    assert r.status_code == 200
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "oldpass1"}).status_code == 401
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "newpass9"}).json()["success"] is True
+
+
+def test_admin_can_change_other_admin_password(client, admin_headers):
+    """仅 admin 可改 admin 密码:admin 操作者改其他 admin 的密码 → 200"""
+    assert client.post("/api/users", json={"username": "admin2", "password": "pass1234", "permission": "admin"},
+                       headers=admin_headers).status_code == 200
+    users = client.get("/api/users", headers=admin_headers).json()
+    admin2_id = next(u["id"] for u in users if u["username"] == "admin2")
+
+    r = client.put(f"/api/users/{admin2_id}", json={"password": "newpass9"}, headers=admin_headers)
+    assert r.status_code == 200
+    assert client.post("/api/auth/login", json={"username": "admin2", "password": "newpass9"}).json()["success"] is True
+
+
 # ---- 认证中间件 ----
 
 def test_middleware_requires_token(client):

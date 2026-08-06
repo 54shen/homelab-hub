@@ -622,6 +622,27 @@ def delete_token(token_id: int):
 
 
 # ---- 用户管理 API ----
+def _current_operator(request: Request, db):
+    """解析 Authorization → 当前操作者 User(Web 会话或 API Token)"""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    token_str = auth[7:]
+    session_record = db.query(SessionModel).filter(SessionModel.session_token == token_str).first()
+    if session_record:
+        return db.query(User).filter(User.id == session_record.user_id).first()
+    token_record = db.query(TokenModel).filter(TokenModel.token == token_str).first()
+    if token_record and token_record.user_id:
+        return db.query(User).filter(User.id == token_record.user_id).first()
+    return None
+
+
+def _require_admin_operator(request: Request, db) -> User | None:
+    """用户管理操作:操作者必须是 admin,否则返回 None(调用方返回 403)"""
+    op = _current_operator(request, db)
+    return op if op and op.permission == "admin" else None
+
+
 @app.get("/api/users")
 def list_users():
     db = SessionLocal()
@@ -641,9 +662,11 @@ class UserCreate(PydanticBase):
     permission: str = "read"
 
 @app.post("/api/users")
-def create_user(req: UserCreate):
+def create_user(req: UserCreate, request: Request):
     db = SessionLocal()
     try:
+        if not _require_admin_operator(request, db):
+            return JSONResponse(status_code=403, content={"detail": "仅管理员可管理用户"})
         if db.query(User).filter(User.username == req.username).first():
             return JSONResponse(status_code=400, content={"detail": "用户名已存在"})
         if len(req.password) < 4:
@@ -667,13 +690,20 @@ class UserUpdate(PydanticBase):
     permission: str | None = None
 
 @app.put("/api/users/{user_id}")
-def update_user(user_id: int, req: UserUpdate):
+def update_user(user_id: int, req: UserUpdate, request: Request):
     db = SessionLocal()
     try:
+        op = _require_admin_operator(request, db)
+        if not op:
+            return JSONResponse(status_code=403, content={"detail": "仅管理员可管理用户"})
         u = db.query(User).filter(User.id == user_id).first()
         if not u:
             return JSONResponse(status_code=404, content={"detail": "用户不存在"})
         if req.password:
+            # 修改自己的密码请走「修改密码」模块(需验证旧密码),用户管理只改其他账户
+            if u.id == op.id:
+                return JSONResponse(status_code=403,
+                                    content={"detail": "请使用「修改密码」模块修改自己的密码（需验证旧密码）"})
             if len(req.password) < 4:
                 return JSONResponse(status_code=400, content={"detail": "密码至少 4 位"})
             u.password_hash = hash_password(req.password)
@@ -686,16 +716,22 @@ def update_user(user_id: int, req: UserUpdate):
 
 
 @app.delete("/api/users/{user_id}")
-def delete_user(user_id: int):
+def delete_user(user_id: int, request: Request):
     db = SessionLocal()
     try:
+        if not _require_admin_operator(request, db):
+            return JSONResponse(status_code=403, content={"detail": "仅管理员可管理用户"})
         u = db.query(User).filter(User.id == user_id).first()
-        if u:
-            # 删除关联的 Token 和会话
-            db.query(TokenModel).filter(TokenModel.user_id == user_id).delete()
-            db.query(SessionModel).filter(SessionModel.user_id == user_id).delete()
-            db.delete(u)
-            db.commit()
+        if not u:
+            return {"success": True, "message": "已删除"}
+        # 管理员账号完全禁止删除(防止系统失去管理员;应急恢复用 reset_admin.py)
+        if u.permission == "admin":
+            return JSONResponse(status_code=403, content={"detail": "管理员账号不允许删除"})
+        # 删除关联的 Token 和会话
+        db.query(TokenModel).filter(TokenModel.user_id == user_id).delete()
+        db.query(SessionModel).filter(SessionModel.user_id == user_id).delete()
+        db.delete(u)
+        db.commit()
         return {"success": True, "message": "已删除"}
     finally:
         db.close()

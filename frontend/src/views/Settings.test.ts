@@ -167,7 +167,11 @@ enableAutoUnmount(afterEach)
 function mockDefaultData() {
   httpMock.get.mockImplementation((url: string) => {
     if (url === '/users') {
-      return Promise.resolve({ data: [{ id: 1, username: 'admin', permission: 'admin', created_at: '2026-01-01' }] })
+      // admin(当前登录者,无编辑/删除按钮)+ 普通用户 bob(可编辑/删除)
+      return Promise.resolve({ data: [
+        { id: 1, username: 'admin', permission: 'admin', created_at: '2026-01-01' },
+        { id: 5, username: 'bob', permission: 'read', created_at: '2026-02-01' },
+      ] })
     }
     if (url === '/tokens') {
       return Promise.resolve({ data: [{ id: 2, user_id: null, name: 'agent-1', token: 'tk...', token_full: '', permission: 'write', created_at: '2026-01-01' }] })
@@ -221,9 +225,10 @@ describe('Settings.vue', () => {
     expect(httpMock.get).toHaveBeenCalledWith('/sessions')
     expect(authApiMock.twofaStatus).toHaveBeenCalled()
     expect(dashboardApiMock.dbStatus).toHaveBeenCalled()
-    // Token + 用户 + 会话三张表各 1 行
-    expect(wrapper.findAll('.table-row')).toHaveLength(3)
+    // Token 表 1 行 + 用户表 2 行(admin/bob) + 会话表 1 行
+    expect(wrapper.findAll('.table-row')).toHaveLength(4)
     expect(wrapper.text()).toContain('admin')
+    expect(wrapper.text()).toContain('bob')
     expect(wrapper.text()).toContain('agent-1')
     // 数据库状态
     expect(wrapper.text()).toContain('1.2 MB')
@@ -361,11 +366,16 @@ describe('Settings.vue', () => {
     expect(wrapper.find('.n-modal').exists()).toBe(false)
   })
 
-  it('编辑用户:预填表单,保存调用 put', async () => {
+  it('编辑用户:预填表单,保存调用 put(仅普通用户行有编辑按钮,admin/自己行没有)', async () => {
     const wrapper = mountPage()
     await flushPromises()
-    // 表格渲染顺序:Token 表(1 行) → 用户表(1 行) → 会话表(1 行),用户行是第 2 行
-    const row = wrapper.findAll('.table-row')[1]
+    // 表格渲染顺序:Token 表(1 行) → 用户表(admin 行 + bob 行) → 会话表,admin 行是第 2 行、bob 是第 3 行
+    const rows = wrapper.findAll('.table-row')
+    // admin 行(当前登录者)无编辑/删除按钮
+    expect(rows[1].findAll('button').map(b => b.text())).not.toContain('编辑')
+    expect(rows[1].findAll('button').map(b => b.text())).not.toContain('删除')
+    // bob 行可编辑
+    const row = rows[2]
     await row.findAll('button').find((b) => b.text().includes('编辑'))!.trigger('click')
     await flushPromises()
     const modal = wrapper.find('.n-modal')
@@ -374,16 +384,16 @@ describe('Settings.vue', () => {
     expect((usernameInput.element as HTMLInputElement).disabled).toBe(true)
     await modal.findAll('button').find((b) => b.text().includes('保存'))!.trigger('click')
     await flushPromises()
-    expect(httpMock.put).toHaveBeenCalledWith('/users/1', { password: undefined, permission: 'admin' })
+    expect(httpMock.put).toHaveBeenCalledWith('/users/5', { password: undefined, permission: 'read' })
   })
 
-  it('删除用户:确认后调用 delete 并重新加载', async () => {
+  it('删除用户:确认后调用 delete 并重新加载(admin 行无删除按钮)', async () => {
     const wrapper = mountPage()
     await flushPromises()
-    const row = wrapper.findAll('.table-row')[1]  // 用户行
+    const row = wrapper.findAll('.table-row')[2]  // bob 行
     await row.find('.confirm-btn').trigger('click')
     await flushPromises()
-    expect(httpMock.delete).toHaveBeenCalledWith('/users/1')
+    expect(httpMock.delete).toHaveBeenCalledWith('/users/5')
     expect(msgSuccess).toHaveBeenCalledWith('已删除')
   })
 

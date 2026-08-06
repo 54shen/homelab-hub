@@ -305,6 +305,9 @@ const userModalVisible = ref(false)
 const editingUserId = ref<number | null>(null)
 const userForm = ref({ username: '', password: '', permission: 'read' })
 
+// 当前登录用户(自己那行:改密码走「修改密码」模块,用户管理里不提供编辑)
+const currentUsername = localStorage.getItem('sc_username') || ''
+
 const userColumns = [
   { title: '用户名', key: 'username', width: 120 },
   { title: '权限', key: 'permission', width: 80 },
@@ -312,9 +315,12 @@ const userColumns = [
   {
     title: '操作', key: 'actions', width: 120,
     render(row: UserEntry) {
+      const isSelf = row.username === currentUsername
+      // 自己那行:改密码请用顶部「修改密码」模块(需验证旧密码),不提供编辑
+      // admin 行:完全禁止删除(后端同样拒绝),不提供删除按钮
       return h('div', { style: 'display:flex;gap:4px' }, [
-        h(NButton, { size: 'tiny', quaternary: true, onClick: () => openUserEdit(row) }, { default: () => '编辑' }),
-        h(NPopconfirm, { onPositiveClick: () => handleUserDelete(row.id) }, {
+        isSelf ? null : h(NButton, { size: 'tiny', quaternary: true, onClick: () => openUserEdit(row) }, { default: () => '编辑' }),
+        row.permission === 'admin' ? null : h(NPopconfirm, { onPositiveClick: () => handleUserDelete(row.id) }, {
           trigger: () => h(NButton, { size: 'tiny', quaternary: true, type: 'error' }, { default: () => '删除' }),
           default: () => '确定删除？将同时删除该用户的所有Token和会话'
         })

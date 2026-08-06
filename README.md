@@ -392,6 +392,7 @@ location ^~ / {
 - **Web 会话**:登录后自动携带 `ws-` 会话 Token
 - **三级权限**:`read`(只读)/ `write`(读写)/ `admin`(全部)
 - 写操作(POST/PUT/DELETE/PATCH)要求 `write` 或 `admin`
+- **用户管理仅 admin 可操作**(write 无法增删改用户/改权限,堵提权链);**管理员账号禁止删除**;用户管理里不能修改自己的密码(走「修改密码」旧密码验证模块),admin 可修改其他账户(含其他 admin)的密码
 - 公开路径(免认证):`/api/health`、`/docs`、`/openapi.json`、`/redoc`、`/api/auth/login`、`/api/auth/login-mode`、`/api/auth/totp-login`、`/`、`/ws`
 
 ### 仅验证码登录(可选开关,设置页开启)
