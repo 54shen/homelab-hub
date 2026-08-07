@@ -281,6 +281,39 @@ describe('DeviceDetail.vue', () => {
     expect(wrapper.findAll('.table-row')).toHaveLength(2)
   })
 
+  it('心跳超时:点击标签编辑 → Enter 保存', async () => {
+    mockDevice()
+    const wrapper = mountPage()
+    await flushPromises()
+    // 初始显示 60s
+    expect(wrapper.find('.timeout-tag').text()).toContain('60s')
+    await wrapper.find('.timeout-tag').trigger('click')
+    await flushPromises()
+    const input = wrapper.find('.timeout-input-inline')
+    expect(input.exists()).toBe(true)
+    await input.setValue('30')
+    await input.trigger('keydown.enter')
+    await flushPromises()
+    expect(kvApiMock.set).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'PC1.心跳超时', value: '30', type: 'int'
+    }))
+    expect(msgSuccess).toHaveBeenCalledWith('PC1 → 30s')
+    // 保存后恢复显示新值
+    expect(wrapper.find('.timeout-tag').text()).toContain('30s')
+  })
+
+  it('心跳超时非法值(0) → 不调用 API', async () => {
+    mockDevice()
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.find('.timeout-tag').trigger('click')
+    await flushPromises()
+    await wrapper.find('.timeout-input-inline').setValue('0')
+    await wrapper.find('.timeout-input-inline').trigger('keydown.enter')
+    await flushPromises()
+    expect(kvApiMock.set).not.toHaveBeenCalled()
+  })
+
   it('删除设备 → 确认后 unregister 并跳回设备列表', async () => {
     mockDevice()
     deviceApiMock.unregister.mockResolvedValue({ data: {} })

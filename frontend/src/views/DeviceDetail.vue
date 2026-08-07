@@ -18,6 +18,22 @@
               <p class="hero-sub">{{ device.hostname || device.id }}</p>
             </div>
             <StatusBadge :online="device.online" style="margin-left:12px" />
+            <span
+              v-if="editingTimeout"
+              class="timeout-tag"
+              @click.stop
+            >⏱<input
+              ref="timeoutInputRef"
+              v-model="timeoutInput"
+              class="timeout-input-inline"
+              @keydown.enter="saveTimeout()"
+              @blur="editingTimeout = false"
+            />s</span>
+            <span
+              v-else
+              class="timeout-tag"
+              @click.stop="startTimeoutEdit()"
+            >⏱{{ device.heartbeat_timeout }}s</span>
           </div>
           <div style="display:flex;align-items:center;gap:12px">
             <n-tag size="small" :bordered="false" round>{{ device.group || '默认' }}</n-tag>
@@ -429,6 +445,27 @@ const subDevices = computed<SubDevice[]>(() => {
 })
 
 const message = useMessage()
+const timeoutInput = ref('')
+const editingTimeout = ref(false)
+const timeoutInputRef = ref<HTMLInputElement | null>(null)
+
+function startTimeoutEdit() {
+  editingTimeout.value = true
+  timeoutInput.value = device.value?.heartbeat_timeout != null ? String(device.value.heartbeat_timeout) : ''
+  setTimeout(() => timeoutInputRef.value?.focus(), 50)
+}
+
+async function saveTimeout() {
+  const num = parseInt(timeoutInput.value)
+  if (!num || num < 1 || !device.value) { editingTimeout.value = false; return }
+  try {
+    const username = localStorage.getItem('sc_username') || 'admin'
+    await kvApi.set({ key: `${device.value.name}.心跳超时`, value: String(num), type: 'int', source: `${username}(Web)` })
+    device.value.heartbeat_timeout = num
+    message.success(`${device.value.name} → ${num}s`)
+  } catch { message.error('保存失败') }
+  editingTimeout.value = false
+}
 
 function openHistory(key: string) {
   historyKey.value = key
@@ -573,6 +610,21 @@ onUnmounted(() => {
 <style scoped>
 .back-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--gap-md); }
 .chart-box { width: 100%; height: 220px; overflow: hidden; }
+.timeout-tag {
+  font-size: 12px; color: var(--text-secondary); cursor: pointer;
+  background: #FFF3E0; color: #E65100; padding: 3px 10px; border-radius: 12px;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+  transition: all 0.15s; font-weight: 500;
+}
+.timeout-tag:hover { background: #FFE0B2; }
+.timeout-input-inline {
+  width: 48px; font-size: 12px; padding: 0 4px;
+  border: none; border-bottom: 1.5px dashed #E65100;
+  border-radius: 4px;
+  text-align: center; outline: none;
+  background: rgba(255,255,255,0.6); color: #E65100;
+  font-weight: 500; font-family: inherit;
+}
 .detail-hero {
   display: flex; align-items: center; justify-content: space-between;
   background: var(--bg-card); border: 1px solid var(--border-card);
