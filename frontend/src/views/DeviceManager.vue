@@ -238,7 +238,8 @@ async function loadData() {
     if (d.type === 'ha') {
       try {
         const vRes = await deviceApi.variables(d.id)
-        const vars = vRes.data || []
+        // 排除系统键(心跳超时/server_received_at),chips 和计数都不显示
+        const vars = (vRes.data || []).filter(v => v.source !== 'system')
         haVarCounts.value[d.id] = vars.length
 
         // 提取子设备名和图标

@@ -50,21 +50,20 @@
           </div>
         </div>
 
-        <!-- ======== 非 PC 设备：HA 同款卡片(一个实体一张卡,卡内列出全部业务变量) ======== -->
-        <div v-if="serviceCard" class="subdevice-grid" style="margin-top:16px">
-          <div class="subdevice-card">
+        <!-- ======== 非 PC 设备：HA 同款卡片(每个业务变量一张卡,名字 = key 后缀的映射名) ======== -->
+        <div v-if="serviceCards.length > 0" class="subdevice-grid" style="margin-top:16px">
+          <div v-for="c in serviceCards" :key="c.key" class="subdevice-card">
             <div class="sd-header">
-              <span class="sd-icon">{{ serviceCard.icon }}</span>
-              <span class="sd-name">{{ device.name }}</span>
+              <span class="sd-icon">{{ c.icon }}</span>
+              <span class="sd-name">{{ c.label }}</span>
             </div>
             <div class="sd-props">
-              <div v-for="p in serviceCard.props" :key="p.key" class="sd-prop">
-                <span class="sd-prop-label">{{ p.label }}</span>
-                <span class="sd-prop-value clickable" @click.stop="openHistory(p.key)">{{ p.value }}</span>
+              <div class="sd-prop">
+                <span class="sd-prop-value clickable" @click.stop="openHistory(c.key)">{{ c.value }}</span>
               </div>
             </div>
             <div class="sd-footer">
-              <span class="sd-time">更新于 {{ serviceCard.updatedAt }}</span>
+              <span class="sd-time">{{ c.time }}</span>
             </div>
           </div>
         </div>
@@ -100,7 +99,7 @@
         </div>
 
         <!-- ======== PC 设备：资源指标(仅 pc 显示 CPU/内存等,其他设备走上方 HA 同款卡片) ======== -->
-        <div v-if="device.type === 'computer' && device.online" class="card-grid" style="margin-top:16px">
+        <div v-if="isPcType(device.type) && device.online" class="card-grid" style="margin-top:16px">
           <n-card v-if="device.cpu != null" size="small" title="CPU" class="metric-clickable" @click="openHistory(device.name + '.cpu')">
             <div class="metric-big">{{ device.cpu }}<span class="unit">%</span></div>
             <n-progress type="line" :percentage="device.cpu" :color="device.cpu > 80 ? '#EF4444' : '#5B8DEF'" :height="6" :border-radius="3" />
@@ -320,7 +319,14 @@ function iconForType(type: string): string {
 }
 
 // ---- 非 PC 设备：HA 同款卡片(如 FRP 的隧道/版本) ----
-// pc → 原 CPU/内存指标卡;ha → 子设备卡片;其他设备 → 单张卡片内列出全部业务变量
+// pc → 原 CPU/内存指标卡;ha → 子设备卡片;其他设备 → 每个业务变量一张小卡片
+function isPcType(type: string): boolean {
+  return type === 'computer' || type === 'pc'
+}
+
+const SVC_VAR_ICONS: Record<string, string> = {
+  proxies_running: '🔌', proxies_total: '🔗', version: '🏷️', error: '⚠️'
+}
 
 
 function relTime(ts: string): string {
@@ -332,14 +338,21 @@ function relTime(ts: string): string {
   return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
-const serviceCard = computed(() => {
-  if (!device.value || device.value.type === 'ha' || device.value.type === 'computer') return null
-  // 排除系统内部键(心跳超时/server_received_at 等),只看业务变量
-  const vars = variables.value.filter(v => v.source !== 'system')
-  if (vars.length === 0) return null
-  const props = vars.map(v => ({ key: v.key, label: labelOf(v.key), value: v.value }))
-  const latest = vars.reduce((m, v) => (v.updated_at > m ? v.updated_at : m), vars[0]?.updated_at || '')
-  return { icon: iconForType(device.value.type), props, updatedAt: relTime(latest) }
+const serviceCards = computed(() => {
+  if (!device.value || device.value.type === 'ha' || isPcType(device.value.type)) return []
+  // 只显示业务变量:排除系统键(心跳超时/server_received_at)
+  return variables.value
+    .filter(v => v.source !== 'system')
+    .map(v => {
+      const suffix = (v.key.split('.').pop() || '').toLowerCase()
+      return {
+        key: v.key,
+        label: labelOf(v.key).replace(device.value!.name + '.', ''),  // 名字 = key 后缀的映射名
+        icon: SVC_VAR_ICONS[suffix] || '📊',
+        value: v.value,
+        time: relTime(v.updated_at)
+      }
+    })
 })
 
 // ---- HA 子设备分组 ----
