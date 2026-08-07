@@ -44,7 +44,6 @@
           </div>
           <div class="dc-status">
             <StatusBadge :online="d.online" />
-            <span class="timeout-tag">⏱{{ d.heartbeat_timeout }}s</span>
           </div>
         </div>
 
@@ -469,12 +468,5 @@ onUnmounted(() => {
 .ha-count {
   font-size: 12px;
   color: var(--text-secondary);
-}
-
-.timeout-tag {
-  font-size: 11px;
-  background: #FFF3E0; color: #E65100; padding: 2px 8px; border-radius: 10px;
-  font-variant-numeric: tabular-nums; white-space: nowrap;
-  font-weight: 500;
 }
 </style>
