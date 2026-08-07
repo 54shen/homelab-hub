@@ -50,6 +50,25 @@
           </div>
         </div>
 
+        <!-- ======== 非 PC 设备：HA 同款卡片(一个实体一张卡,卡内列出全部业务变量) ======== -->
+        <div v-if="serviceCard" class="subdevice-grid" style="margin-top:16px">
+          <div class="subdevice-card">
+            <div class="sd-header">
+              <span class="sd-icon">{{ serviceCard.icon }}</span>
+              <span class="sd-name">{{ device.name }}</span>
+            </div>
+            <div class="sd-props">
+              <div v-for="p in serviceCard.props" :key="p.key" class="sd-prop">
+                <span class="sd-prop-label">{{ p.label }}</span>
+                <span class="sd-prop-value clickable" @click.stop="openHistory(p.key)">{{ p.value }}</span>
+              </div>
+            </div>
+            <div class="sd-footer">
+              <span class="sd-time">更新于 {{ serviceCard.updatedAt }}</span>
+            </div>
+          </div>
+        </div>
+
         <!-- ======== HA 设备：子设备卡片视图 ======== -->
         <div v-if="device.type === 'ha'" style="margin-top:16px">
           <div v-if="subDevices.length === 0" style="text-align:center;padding:40px;color:var(--text-secondary)">
@@ -80,26 +99,26 @@
           </div>
         </div>
 
-        <!-- ======== 普通设备：资源指标 ======== -->
-        <div v-if="device.type !== 'ha' && device.online" class="card-grid" style="margin-top:16px">
-          <n-card size="small" title="CPU" class="metric-clickable" @click="openHistory(device.name + '.cpu')">
-            <div class="metric-big">{{ device.cpu ?? '—' }}<span class="unit">%</span></div>
-            <n-progress type="line" :percentage="device.cpu ?? 0" :color="device.cpu && device.cpu > 80 ? '#EF4444' : '#5B8DEF'" :height="6" :border-radius="3" />
+        <!-- ======== PC 设备：资源指标(仅 pc 显示 CPU/内存等,其他设备走上方 HA 同款卡片) ======== -->
+        <div v-if="device.type === 'computer' && device.online" class="card-grid" style="margin-top:16px">
+          <n-card v-if="device.cpu != null" size="small" title="CPU" class="metric-clickable" @click="openHistory(device.name + '.cpu')">
+            <div class="metric-big">{{ device.cpu }}<span class="unit">%</span></div>
+            <n-progress type="line" :percentage="device.cpu" :color="device.cpu > 80 ? '#EF4444' : '#5B8DEF'" :height="6" :border-radius="3" />
           </n-card>
-          <n-card size="small" title="内存" class="metric-clickable" @click="openHistory(device.name + '.memory')">
-            <div class="metric-big">{{ device.memory ?? '—' }}<span class="unit">%</span></div>
-            <n-progress type="line" :percentage="device.memory ?? 0" color="#22C55E" :height="6" :border-radius="3" />
+          <n-card v-if="device.memory != null" size="small" title="内存" class="metric-clickable" @click="openHistory(device.name + '.memory')">
+            <div class="metric-big">{{ device.memory }}<span class="unit">%</span></div>
+            <n-progress type="line" :percentage="device.memory" color="#22C55E" :height="6" :border-radius="3" />
           </n-card>
-          <n-card size="small" title="磁盘" class="metric-clickable" @click="openHistory(device.name + '.disk')">
-            <div class="metric-big">{{ device.disk ?? '—' }}<span class="unit">%</span></div>
-            <n-progress type="line" :percentage="device.disk ?? 0" color="#F59E0B" :height="6" :border-radius="3" />
+          <n-card v-if="device.disk != null" size="small" title="磁盘" class="metric-clickable" @click="openHistory(device.name + '.disk')">
+            <div class="metric-big">{{ device.disk }}<span class="unit">%</span></div>
+            <n-progress type="line" :percentage="device.disk" color="#F59E0B" :height="6" :border-radius="3" />
           </n-card>
-          <n-card size="small" title="音量" class="metric-clickable" @click="openHistory(device.name + '.volume')">
-            <div class="metric-big">{{ (device.volume ?? 0) < 0 ? '🔇' : ((device.volume ?? '—') + '%') }}</div>
-            <n-progress type="line" :percentage="(device.volume ?? 0) < 0 ? 0 : (device.volume ?? 0)" :color="(device.volume ?? 0) < 0 ? '#9CA3AF' : '#A855F7'" :height="6" :border-radius="3" />
+          <n-card v-if="device.volume != null" size="small" title="音量" class="metric-clickable" @click="openHistory(device.name + '.volume')">
+            <div class="metric-big">{{ device.volume < 0 ? '🔇' : (device.volume + '%') }}</div>
+            <n-progress type="line" :percentage="device.volume < 0 ? 0 : device.volume" :color="device.volume < 0 ? '#9CA3AF' : '#A855F7'" :height="6" :border-radius="3" />
           </n-card>
-          <n-card size="small" title="运行时长">
-            <div class="metric-big-text">{{ device.uptime || '—' }}</div>
+          <n-card v-if="device.uptime" size="small" title="运行时长">
+            <div class="metric-big-text">{{ device.uptime }}</div>
           </n-card>
         </div>
 
@@ -139,8 +158,8 @@
         <!-- 历史记录弹窗 -->
         <HistoryModal v-model:show="showHistory" :key-prop="historyKey" />
 
-        <!-- ======== 普通设备：心跳历史 ======== -->
-        <n-card v-if="device.type !== 'ha'" title="心跳历史" size="small" style="margin-top:16px">
+        <!-- ======== 普通设备：心跳历史(仅 CPU/内存类设备) ======== -->
+        <n-card v-if="device.type !== 'ha' && (device.cpu != null || device.memory != null)" title="心跳历史" size="small" style="margin-top:16px">
           <div ref="heartbeatChartRef" class="chart-box"></div>
         </n-card>
       </template>
@@ -295,10 +314,33 @@ function iconForType(type: string): string {
   const map: Record<string, string> = {
     computer: '🖥️', server: '📦', nas: '💾', iot: '🏠',
     cloud: '☁️', docker: '🐳', vm: '📀', router: '📡',
-    ha: '🏠'
+    frpc: '🚀', ha: '🏠'
   }
   return map[type] || '📡'
 }
+
+// ---- 非 PC 设备：HA 同款卡片(如 FRP 的隧道/版本) ----
+// pc → 原 CPU/内存指标卡;ha → 子设备卡片;其他设备 → 单张卡片内列出全部业务变量
+
+
+function relTime(ts: string): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const diffMin = Math.floor((Date.now() - d.getTime()) / 60000)
+  if (diffMin < 1) return '刚刚'
+  if (diffMin < 60) return `${diffMin} 分钟前`
+  return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+}
+
+const serviceCard = computed(() => {
+  if (!device.value || device.value.type === 'ha' || device.value.type === 'computer') return null
+  // 排除系统内部键(心跳超时/server_received_at 等),只看业务变量
+  const vars = variables.value.filter(v => v.source !== 'system')
+  if (vars.length === 0) return null
+  const props = vars.map(v => ({ key: v.key, label: labelOf(v.key), value: v.value }))
+  const latest = vars.reduce((m, v) => (v.updated_at > m ? v.updated_at : m), vars[0]?.updated_at || '')
+  return { icon: iconForType(device.value.type), props, updatedAt: relTime(latest) }
+})
 
 // ---- HA 子设备分组 ----
 

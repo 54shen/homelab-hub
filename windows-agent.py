@@ -10,6 +10,7 @@ import signal
 import socket
 import platform
 import logging
+import subprocess
 import threading
 from datetime import datetime
 from functools import wraps
@@ -37,6 +38,15 @@ INTERVAL     = 5                       # 心跳间隔（秒）
 REPORT_KV    = True                     # 是否上报 KV 变量
 KV_INTERVAL  = 6                        # 每 N 次心跳上报一次 KV
 SOURCE       = "我的agent"
+
+# ── FRP 设备:frpc 作为独立设备上报,代码整合在本 agent 内 ──
+FRP_DEVICE_NAME  = "FRP"
+FRP_DEVICE_TYPE  = "frpc"
+FRP_DEVICE_GROUP = "服务"
+FRP_OS           = "windows_amd64"    # frp 构建平台(独立身份,不是 PC 的 os)
+FRPC_TOML        = os.getenv("FRPC_TOML", r"C:\Program Files\FRP\frpc.toml")
+FRPC_EXE         = os.getenv("FRPC_EXE", r"C:\Program Files\FRP\frpc.exe")
+FRP_ADMIN_DEFAULT = (7501, "admin", "admin")   # frpc.toml 读取失败时的兜底
 
 # Flask 指令监听端口
 FLASK_PORT   = int(os.getenv("PC_PORT", "11253"))
@@ -234,6 +244,15 @@ def get_ip() -> str:
         return socket.gethostbyname(HOSTNAME)
 
 
+def _fmt_uptime(secs: float) -> str:
+    d = int(secs // 86400)
+    h = int((secs % 86400) // 3600)
+    m = int((secs % 3600) // 60)
+    if d: return f"{d}d {h}h {m}m"
+    if h: return f"{h}h {m}m"
+    return f"{m}m"
+
+
 def get_uptime() -> str:
     try:
         if HAS_PSUTIL:
@@ -245,12 +264,20 @@ def get_uptime() -> str:
             return ""
     except Exception:
         return ""
-    d = int(secs // 86400)
-    h = int((secs % 86400) // 3600)
-    m = int((secs % 3600) // 60)
-    if d: return f"{d}d {h}h {m}m"
-    if h: return f"{h}h {m}m"
-    return f"{m}m"
+    return _fmt_uptime(secs)
+
+
+def frp_uptime() -> str:
+    """frpc 进程自身的运行时长(独立于系统 uptime;进程不在时返回空)"""
+    if not HAS_PSUTIL:
+        return ""
+    try:
+        for p in psutil.process_iter(["name", "create_time"]):
+            if (p.info["name"] or "").lower() in ("frpc", "frpc.exe"):
+                return _fmt_uptime(time.time() - p.info["create_time"])
+    except Exception:
+        pass
+    return ""
 
 
 def collect() -> dict:
@@ -316,22 +343,23 @@ def post(path: str, data: dict, retry: int = 3, delay: int = 5) -> dict | None:
 # ══════════════════════════════════════════════════════════════
 # 业务：注册 / 心跳 / KV 上报
 # ══════════════════════════════════════════════════════════════
-def kv_prefix() -> str:
-    name = DEVICE_NAME or HOSTNAME
+def kv_prefix(name: str = "") -> str:
+    name = name or DEVICE_NAME or HOSTNAME
     return name.replace("-", ".").replace(" ", ".") + "."
 
 
-def register() -> bool:
+def register(name: str = "", dev_type: str = "", group: str = "", version: str = "2.0",
+             hostname: str | None = None, mac: str | None = None, os_str: str | None = None) -> bool:
+    """注册设备。默认采集本机信息(主设备);传 hostname/mac/os_str 时用独立身份(如 FRP 传空)"""
     info = collect()
-    name = DEVICE_NAME or HOSTNAME
     payload = {
-        "name": name,
-        "type": DEVICE_TYPE,
-        "version": "2.0",
-        "hostname": info["hostname"],
-        "mac": info["mac"],
-        "os": f"{info['os']} {info['os_release']}",
-        "group": DEVICE_GROUP,
+        "name": name or DEVICE_NAME or HOSTNAME,
+        "type": dev_type or DEVICE_TYPE,
+        "version": version,
+        "hostname": info["hostname"] if hostname is None else hostname,
+        "mac": info["mac"] if mac is None else mac,
+        "os": f"{info['os']} {info['os_release']}" if os_str is None else os_str,
+        "group": group or DEVICE_GROUP,
     }
     result = post("/api/device/register", payload)
     if result and result.get("success"):
@@ -407,6 +435,90 @@ def report_kv() -> None:
 
 
 # ══════════════════════════════════════════════════════════════
+# FRP 设备:frpc 作为独立设备上报(探测 → 心跳 → KV)
+# ══════════════════════════════════════════════════════════════
+def frp_admin_config() -> tuple:
+    """从 frpc.toml 读取管理接口(端口/账号/密码),失败用默认值"""
+    port, user, pwd = FRP_ADMIN_DEFAULT
+    try:
+        for line in Path(FRPC_TOML).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("admin_port"):
+                port = int(line.split("=", 1)[1].strip())
+            elif line.startswith("admin_user"):
+                user = line.split("=", 1)[1].strip().strip('"').strip("'")
+            elif line.startswith("admin_pwd"):
+                pwd = line.split("=", 1)[1].strip().strip('"').strip("'")
+    except (OSError, ValueError):
+        pass
+    return port, user, pwd
+
+
+def frp_version() -> str:
+    """frpc -v 取版本号(启动时调用一次)"""
+    try:
+        out = subprocess.run([FRPC_EXE, "-v"], capture_output=True, text=True, timeout=5)
+        return (out.stdout or out.stderr).strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def check_frp() -> dict:
+    """探测 frpc 管理接口:能返回 JSON = 进程活着且连上服务器;失败 = 挂了"""
+    port, user, pwd = frp_admin_config()
+    state = {"online": False, "proxies_running": 0, "proxies_total": 0, "error": ""}
+    try:
+        resp = requests.get(f"http://127.0.0.1:{port}/api/status", auth=(user, pwd), timeout=3)
+        if resp.status_code != 200:
+            state["error"] = f"管理接口 HTTP {resp.status_code}"
+            return state
+        data = resp.json()
+        proxies = []
+        for k in ("tcp", "udp", "http", "https", "stcp", "xtcp"):
+            proxies += data.get(k, [])
+        state["proxies_total"] = len(proxies)
+        state["proxies_running"] = sum(1 for p in proxies if p.get("status") == "running")
+        state["online"] = True
+    except requests.exceptions.ConnectionError:
+        state["error"] = "frpc 进程未运行(连接拒绝)"
+    except requests.exceptions.Timeout:
+        state["error"] = "frpc 响应超时(与服务器失联)"
+    except Exception as e:
+        state["error"] = f"探测异常: {e}"
+    return state
+
+
+def heartbeat_frp(state: dict) -> bool:
+    """FRP 设备心跳:online 取决于 frpc 管理接口探测结果;只带 frpc 自身指标,不带 PC 信息"""
+    result = post("/api/device/heartbeat", {
+        "name": FRP_DEVICE_NAME,
+        "online": state["online"],
+        "uptime": frp_uptime() if state["online"] else "",
+        "source": SOURCE,
+    }, retry=1, delay=2)
+    if result and result.get("success"):
+        log.info("FRP 设备心跳: %s", "🟢 运行中" if state["online"] else "🔴 已离线")
+        return True
+    log.warning("FRP 设备心跳失败: %s", result)
+    return False
+
+
+def report_kv_frp(state: dict, version: str) -> None:
+    """FRP 设备的 KV 变量(键前缀 FRP.)。存活与否靠设备 online 状态表达,不另设 alive 键"""
+    pfx = kv_prefix(FRP_DEVICE_NAME)
+    items = [
+        {"key": pfx + "proxies_running", "value": str(state["proxies_running"]), "type": "int"},
+        {"key": pfx + "proxies_total", "value": str(state["proxies_total"]), "type": "int"},
+        {"key": pfx + "version", "value": version, "type": "string"},
+    ]
+    if not state["online"] and state.get("error"):
+        items.append({"key": pfx + "error", "value": state["error"], "type": "string"})
+    for item in items:
+        item["source"] = SOURCE
+        post("/api/kv", item, retry=1, delay=2)
+
+
+# ══════════════════════════════════════════════════════════════
 # 主入口
 # ══════════════════════════════════════════════════════════════
 def shutdown(*_):
@@ -424,13 +536,14 @@ def main():
     log.info("设备名: %s  |  主机名: %s", name, HOSTNAME)
     log.info("服务地址: %s  |  指令端口: %d", BASE_URL, FLASK_PORT)
     log.info("心跳间隔: %ds  |  KV: %s  |  KV 前缀: %s", INTERVAL, "开" if REPORT_KV else "关", kv_prefix())
+    log.info("FRP 设备: %s (独立设备上报,管理接口 %s)", FRP_DEVICE_NAME, FRPC_TOML)
     log.info("=" * 50)
 
     # 启动 Flask 指令监听（后台线程）
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    # 注册
+    # 注册主设备
     if not register():
         log.error("注册失败，30s 后重试...")
         time.sleep(30)
@@ -438,10 +551,23 @@ def main():
             log.critical("注册反复失败，退出")
             sys.exit(1)
 
+    # 注册 FRP 设备(失败不退出,主设备继续工作);独立身份:hostname/mac 显式传空,不带 PC 信息
+    frp_ver = frp_version()
+    if not register(FRP_DEVICE_NAME, FRP_DEVICE_TYPE, FRP_DEVICE_GROUP,
+                    version=frp_ver, os_str=FRP_OS, hostname="", mac=""):
+        log.error("FRP 设备注册失败，30s 后重试...")
+        time.sleep(30)
+        register(FRP_DEVICE_NAME, FRP_DEVICE_TYPE, FRP_DEVICE_GROUP,
+                 version=frp_ver, os_str=FRP_OS, hostname="", mac="")
+
+    # 首次探测 FRP
+    frp_state = check_frp()
+
     # 首次 KV
     if REPORT_KV:
         try:
             report_kv()
+            report_kv_frp(frp_state, frp_ver)
             log.info("首次 KV 上报完成")
         except Exception as e:
             log.warning("首次 KV 失败: %s", e)
@@ -451,10 +577,13 @@ def main():
     while True:
         try:
             heartbeat()
+            frp_state = check_frp()
+            heartbeat_frp(frp_state)
             if REPORT_KV:
                 kv_cnt += 1
                 if kv_cnt >= KV_INTERVAL:
                     report_kv()
+                    report_kv_frp(frp_state, frp_ver)
                     kv_cnt = 0
         except Exception as e:
             log.error("异常: %s", e, exc_info=True)

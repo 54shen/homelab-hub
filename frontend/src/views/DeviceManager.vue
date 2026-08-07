@@ -55,8 +55,8 @@
           <n-tag v-if="d.version" size="tiny" :bordered="false" round>v{{ d.version }}</n-tag>
         </div>
 
-        <!-- 指标：普通设备 -->
-        <div v-if="d.online && d.type !== 'ha'" class="dc-metrics">
+        <!-- 指标：PC 设备 -->
+        <div v-if="isPcType(d.type) && d.online" class="dc-metrics">
           <div v-if="d.cpu !== undefined && d.cpu !== null" class="dc-metric metric-clickable" @click.stop="openHistory(d.name + '.cpu')">
             <span class="dm-label">CPU</span>
             <div class="dm-bar"><div class="dm-fill cpu" :style="{ width: (d.cpu ?? 0) + '%' }"></div></div>
@@ -91,6 +91,16 @@
           <div class="ha-count">共 {{ haVarCounts[d.id] || 0 }} 个变量</div>
         </div>
 
+        <!-- 指标：非 PC 设备(服务类,如 FRP)—— 业务变量走字段映射显示为 HA 同款 chips -->
+        <div v-else-if="!isPcType(d.type) && d.online" class="dc-ha-summary">
+          <div class="ha-var-row">
+            <span v-for="chip in svcVarSummary[d.id] || []" :key="chip.key" class="ha-chip">
+              {{ chip.icon }} {{ chip.label }}
+            </span>
+          </div>
+          <div class="ha-count">共 {{ svcVarCounts[d.id] || 0 }} 个变量</div>
+        </div>
+
         <!-- 底部 -->
         <div class="dc-footer">
           <span class="dc-uptime" v-if="d.uptime">运行 {{ d.uptime }}</span>
@@ -121,6 +131,7 @@ import {
 import StatusBadge from '../components/StatusBadge.vue'
 import HistoryModal from '../components/HistoryModal.vue'
 import { useWebSocket } from '../composables/useWebSocket'
+import { useFieldLabels } from '../composables/useFieldLabels'
 import { deviceApi } from '../api'
 import type { Device } from '../types'
 
@@ -135,8 +146,12 @@ const filterGroup = ref<string | null>(null)
 const devices = ref<Device[]>([])
 const haVarCounts = ref<Record<string, number>>({})
 const haSubDeviceSummary = ref<Record<string, Record<string, string>>>({})
+// 非 PC 设备(服务类):业务变量 chips 摘要(走字段映射)
+const svcVarCounts = ref<Record<string, number>>({})
+const svcVarSummary = ref<Record<string, { key: string; icon: string; label: string }[]>>({})
 const showHistory = ref(false)
 const historyKey = ref('')
+const { labelOf } = useFieldLabels()
 
 function openHistory(key: string) {
   historyKey.value = key
@@ -188,9 +203,18 @@ function iconForType(type: string): string {
   const map: Record<string, string> = {
     computer: '🖥️', server: '📦', nas: '💾', iot: '🏠',
     cloud: '☁️', docker: '🐳', vm: '📀', router: '📡',
-    'ha-device': '🏠'
+    frpc: '🚀', ha: '🏠'
   }
   return map[type] || '📡'
+}
+
+function isPcType(type: string): boolean {
+  return type === 'computer' || type === 'pc'
+}
+
+// 非 PC 设备变量 chips 图标(按 key 后缀)
+const SVC_VAR_ICONS: Record<string, string> = {
+  proxies_running: '🔌', proxies_total: '🔗', version: '🏷️', error: '⚠️'
 }
 
 function formatRelative(ts: string): string {
@@ -240,6 +264,21 @@ async function loadData() {
           }
         }
         haSubDeviceSummary.value[d.id] = summary
+      } catch { /* ignore */ }
+    } else if (!isPcType(d.type)) {
+      // 非 PC 设备(服务类,如 FRP):业务变量 → 字段映射后的 chips
+      try {
+        const vRes = await deviceApi.variables(d.id)
+        const vars = (vRes.data || []).filter(v => v.source !== 'system')
+        svcVarCounts.value[d.id] = vars.length
+        svcVarSummary.value[d.id] = vars.slice(0, 8).map(v => {
+          const suffix = (v.key.split('.').pop() || '').toLowerCase()
+          return {
+            key: v.key,
+            icon: SVC_VAR_ICONS[suffix] || '📊',
+            label: labelOf(v.key).replace(d.name + '.', '')
+          }
+        })
       } catch { /* ignore */ }
     }
   }
