@@ -102,6 +102,11 @@
             filterable
             @update:value="onDeviceSelect"
           />
+          <template #feedback>
+            <span style="font-size:11px;color:var(--text-secondary)">
+              设备离线时通知一次;重新上线时也会再通知一次(Webhook 内容里可用 {{ tpl('status') }} 区分)
+            </span>
+          </template>
         </n-form-item>
 
         <!-- 阈值 -->
@@ -112,9 +117,10 @@
 
         <!-- 动作 -->
         <n-form-item label="动作" class="action-form-item">
-          <n-select v-model:value="form.action" :options="actionOptions" multiple style="width:240px" />
+          <n-select v-model:value="form.action" :options="actionOptions" multiple style="width:240px" @update:value="onActionChange" />
         </n-form-item>
-        <n-form-item v-if="form.action.includes('webhook')" label="Webhook">
+        <!-- Webhook 渠道:选了 webhook 动作必须选至少一个渠道(防呆) -->
+        <n-form-item v-if="form.action.includes('webhook')" label="Webhook" required>
           <n-select
             v-model:value="selectedWebhooks"
             :options="webhookOptions"
@@ -123,6 +129,11 @@
             multiple
             style="flex:1"
           />
+          <template #feedback>
+            <span v-if="webhookOptions.length === 0" style="font-size:11px;color:var(--color-warning)">
+              ⚠ 尚未配置可用的 Webhook 渠道,请先在「Webhook 通知」页新增
+            </span>
+          </template>
         </n-form-item>
         <!-- Body+：规则级 JSON，与 Webhook Body 合并后发送 -->
         <n-form-item v-if="form.action.includes('webhook')" label="通知内容 (Body+)">
@@ -311,6 +322,11 @@ function onConditionChange(cond: string) {
   }
 }
 
+// 取消 webhook 动作时清空已选渠道,避免残留无效 action_target(防呆)
+function onActionChange(actions: string[]) {
+  if (!actions.includes('webhook')) selectedWebhooks.value = []
+}
+
 // 初始化级联选择器（编辑时回填）
 function initSelectors(rule: Partial<AlertRule>) {
   const key = rule.trigger_key || ''
@@ -391,6 +407,11 @@ async function handleSave() {
   if (form.value.condition !== 'offline' && !form.value.trigger_key) return
   if (form.value.condition === 'offline' && !form.value.trigger_key) return
   if (form.value.action.length === 0) return
+  // 防呆:选了 webhook 动作必须至少选一个通知渠道
+  if (form.value.action.includes('webhook') && selectedWebhooks.value.length === 0) {
+    message.error('选择 Webhook 动作时必须至少选择一个 Webhook 通知渠道')
+    return
+  }
   form.value.action_target = selectedWebhooks.value.join(',')
   const payload = { ...form.value, action: form.value.action.join(',') }
   try {

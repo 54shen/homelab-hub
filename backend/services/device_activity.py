@@ -100,6 +100,8 @@ def mark_device_active(db: Session, device: Device, now_str: str,
     否则 KV-only 设备在心跳预约过期后，离线告警会静默失效
     （周期扫描 check_device_offline 只标离线、不触发告警）。
     """
+    # 离线 → 上线跳变:触发"设备上线"通知(离线规则的恢复事件)
+    was_offline = online and not device.online
     device.online = online
     device.last_heartbeat = now_str
     write_report_time_silent(db, device, now_str)
@@ -109,3 +111,7 @@ def mark_device_active(db: Session, device: Device, now_str: str,
         from config import DEFAULT_HEARTBEAT_TIMEOUT
         timeout = device.heartbeat_timeout if device.heartbeat_timeout and device.heartbeat_timeout > 0 else DEFAULT_HEARTBEAT_TIMEOUT
         schedule_offline_check(device.name, timeout)
+
+    if was_offline:
+        from services.alerts import notify_device_online
+        notify_device_online(db, device, now_str)

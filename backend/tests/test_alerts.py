@@ -95,3 +95,58 @@ def test_disabled_rule_not_triggered(client, admin_headers, db):
     client.post(f"/api/alerts/{rid}/toggle", json={"enabled": False}, headers=admin_headers)
     check_kv_change("d.v", "1", "2")
     assert db.query(SystemLog).filter(SystemLog.module == "alert").count() == 0
+
+
+def test_webhook_action_requires_target(client, admin_headers):
+    """防呆:选了 webhook 动作但没有通知渠道 → 400"""
+    r = client.post("/api/alerts", json={
+        "name": "缺渠道", "trigger_key": "k.v", "condition": "eq", "threshold": "1", "action": "webhook"
+    }, headers=admin_headers)
+    assert r.status_code == 400
+
+    # 带渠道可创建
+    r = client.post("/api/alerts", json={
+        "name": "有渠道", "trigger_key": "k.v", "condition": "eq", "threshold": "1",
+        "action": "webhook", "action_target": "webhook:1"
+    }, headers=admin_headers)
+    assert r.status_code == 200
+    rid = client.get("/api/alerts", headers=admin_headers).json()[0]["id"]
+
+    # 更新成 webhook 但清空渠道 → 400(合并后校验)
+    r = client.put(f"/api/alerts/{rid}", json={"action": "webhook", "action_target": ""}, headers=admin_headers)
+    assert r.status_code == 400
+
+
+def test_offline_rule_notifies_on_online(client, admin_headers):
+    """设备离线规则:设备重新上线时也触发一次通知(status=online)"""
+    from datetime import datetime
+    from models import Device
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    db_device = Device(id="dev-online-1", name="告警机", type="computer", online=False,
+                       last_heartbeat=now, registered_at=now)
+    from database import SessionLocal
+    s = SessionLocal()
+    try:
+        s.add(db_device)
+        s.commit()
+    finally:
+        s.close()
+
+    client.post("/api/alerts", json={
+        "name": "告警机离线", "trigger_key": "__device__:告警机", "condition": "offline", "action": "log"
+    }, headers=admin_headers)
+
+    # 心跳上线 → 触发上线通知
+    r = client.post("/api/device/heartbeat", json={"name": "告警机", "online": True}, headers=admin_headers)
+    assert r.status_code == 200
+
+    from database import SessionLocal as SL
+    s2 = SL()
+    try:
+        logs = s2.query(SystemLog).filter(SystemLog.module == "alert").all()
+        assert len(logs) == 1
+        assert "告警机离线" in logs[0].message
+        assert '"status": "online"' in logs[0].detail
+    finally:
+        s2.close()

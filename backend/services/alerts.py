@@ -422,3 +422,24 @@ def _execute_scheduled_offline(device_name: str, timeout_seconds: int):
         db.rollback()
     finally:
         db.close()
+
+
+def notify_device_online(db: Session, device: Device, now_str: str) -> None:
+    """设备重新上线:触发匹配的离线规则(condition=offline, trigger_key=__device__:name),
+    事件 status=online —— 离线规则同时承担"上线通知",webhook 内容可用 {{status}} 区分"""
+    trigger_key = f"__device__:{device.name}"
+    rules = db.query(AlertRule).filter(
+        AlertRule.enabled == True,
+        AlertRule.trigger_key == trigger_key,
+        AlertRule.condition == "offline",
+    ).all()
+    for rule in rules:
+        print(f"[Alert] 设备上线触发: {rule.name} | {device.name} (status=online)")
+        _trigger(rule, {
+            "device": device.name,
+            "status": "online",
+            "last_heartbeat": now_str,
+            "ip": device.ip or "",
+            "condition": "online",
+        })
+        db.commit()

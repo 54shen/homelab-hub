@@ -211,6 +211,54 @@ describe('AlertManager.vue', () => {
 
     // offline 模式:显示"监控设备"select,完整 Key 输入框消失
     expect(w.findAll('.n-modal input').some((i) => (i.element as HTMLInputElement).value === 'some.key')).toBe(false)
+    // 离线规则提示:设备重新上线时也会通知
+    expect(w.text()).toContain('重新上线')
+  })
+
+  it('动作选 webhook 但未选渠道 → 阻止保存', async () => {
+    const w = mountPage()
+    const addBtn = w.findAll('button').find((b) => b.text().includes('新增规则'))
+    await addBtn!.trigger('click')
+    await flushPromises()
+
+    const modalInputs = w.findAll('.n-modal input')
+    await modalInputs[0].setValue('Webhook 告警')
+    await modalInputs[2].setValue('room.temp')
+    const selects = w.findAll('.n-modal select')
+    await selects[3].setValue('webhook')
+    await flushPromises()
+
+    const saveBtn = w.findAll('.n-modal button').find((b) => b.text().includes('保存'))
+    await saveBtn!.trigger('click')
+    await flushPromises()
+    expect(alertApiMock.create).not.toHaveBeenCalled()
+  })
+
+  it('动作选 webhook 且选了渠道 → 保存成功并带 action_target', async () => {
+    webhookApiMock.list.mockResolvedValue({ data: [{ id: 1, name: '企业微信', enabled: true }] })
+    const w = mountPage()
+    const addBtn = w.findAll('button').find((b) => b.text().includes('新增规则'))
+    await addBtn!.trigger('click')
+    await flushPromises()
+
+    const modalInputs = w.findAll('.n-modal input')
+    await modalInputs[0].setValue('Webhook 告警')
+    await modalInputs[2].setValue('room.temp')
+    const selects = w.findAll('.n-modal select')
+    await selects[3].setValue('webhook')
+    await flushPromises()
+    // 重新查询:动作切换后 Webhook 渠道 select 才出现(多选)
+    const webhookSelect = w.findAll('.n-modal select')[4]
+    expect(webhookSelect).toBeTruthy()
+    await webhookSelect.setValue('webhook:1')
+    await flushPromises()
+
+    const saveBtn = w.findAll('.n-modal button').find((b) => b.text().includes('保存'))
+    await saveBtn!.trigger('click')
+    await flushPromises()
+    expect(alertApiMock.create).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'webhook', action_target: 'webhook:1'
+    }))
   })
 
   it('动作选 webhook 时显示 Body+ 示例按钮', async () => {
