@@ -79,7 +79,7 @@
     <n-data-table
       v-else
       :columns="columns"
-      :data="filteredData"
+      :data="sortedData"
       :bordered="false"
       :single-line="false"
       size="small"
@@ -95,6 +95,7 @@
       @update:page="kvPage = $event"
       @update:page-size="kvPageSize = $event"
       @update:checked-row-keys="handleCheck"
+      @update:sorter="onSorter"
     />
 
     <!-- 编辑弹窗 -->
@@ -138,9 +139,10 @@ import {
 } from 'naive-ui'
 import { useWebSocket } from '../composables/useWebSocket'
 import { useFieldLabels } from '../composables/useFieldLabels'
+import { useSorter } from '../composables/useSorter'
 import { kvApi } from '../api'
 import HistoryModal from '../components/HistoryModal.vue'
-import { isClipboardKey } from '../utils/clipboard'
+import { isClipboardKey, isReportTimeKey } from '../utils/clipboard'
 import type { KvEntry, KvSetRequest } from '../types'
 
 const message = useMessage()
@@ -183,6 +185,9 @@ const filteredData = computed(() => {
   return rows
 })
 
+// 列排序（Key 按原始 key，更新时间按字符串时间戳）—— 过滤之后再排序
+const { sorted: sortedData, onSorter } = useSorter(filteredData)
+
 // 自动提取前缀列表（key 中第一个 . 之前的部分）
 const prefixOptions = computed(() => {
   const prefixes = new Set<string>()
@@ -202,10 +207,10 @@ const sourceOptions = computed(() => {
   return [...sources].sort().map(s => ({ label: s, value: s }))
 })
 
-// 按前缀分组
+// 按前缀分组（在排序后的数据上分组，组内保持当前排序）
 const groupedData = computed(() => {
   const groups = new Map<string, KvEntry[]>()
-  for (const r of filteredData.value) {
+  for (const r of sortedData.value) {
     const dot = r.key.indexOf('.')
     const prefix = dot > 0 ? r.key.slice(0, dot) : '(无前缀)'
     if (!groups.has(prefix)) groups.set(prefix, [])
@@ -218,6 +223,7 @@ const columns = [
   { type: 'selection' as const, width: 40 },
   {
     title: 'Key', key: 'key', width: 180, ellipsis: { tooltip: true },
+    sorter: true,   // 按原始 key 排序（默认比较，与显示 label 无关）
     render(row: KvEntry) {
       const label = labelOf(row.key)
       const text = label === row.key ? row.key : label
@@ -240,6 +246,7 @@ const columns = [
   },
   {
     title: '更新时间', key: 'updated_at', width: 170,
+    sorter: (a: KvEntry, b: KvEntry) => (a.updated_at || '').localeCompare(b.updated_at || ''),
     render(row: KvEntry) {
       return row.updated_at || '—'
     }
@@ -247,8 +254,8 @@ const columns = [
   {
     title: '操作', key: 'actions', width: 160,
     render(row: KvEntry) {
-      // 内置剪切板变量不可删除(后端同样拒绝),以"内置"标签占位
-      const isBuiltin = isClipboardKey(row.key)
+      // 内置变量（剪切板 / server_received_at）不可删除(后端同样拒绝),以"内置"标签占位
+      const isBuiltin = isClipboardKey(row.key) || isReportTimeKey(row.key)
       return h('div', { style: 'display:flex;gap:4px' }, [
         // 历史(最常用)放在修改前面
         h(NButton, { size: 'tiny', quaternary: true, onClick: () => { historyKey.value = row.key; showHistory.value = true } }, { default: () => '历史' }),
@@ -270,8 +277,8 @@ const columns = [
 const groupColumns = columns.filter(c => c.type !== 'selection')
 
 function handleCheck(keys: (string | number)[]) {
-  // 内置剪切板变量不可选(批量删除时后端也会跳过,双保险)
-  checkedKeys.value = keys.filter(k => !isClipboardKey(String(k)))
+  // 内置变量（剪切板 / server_received_at）不可选(批量删除时后端也会跳过,双保险)
+  checkedKeys.value = keys.filter(k => !isClipboardKey(String(k)) && !isReportTimeKey(String(k)))
 }
 
 function openCreateModal() {

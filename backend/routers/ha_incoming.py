@@ -97,7 +97,7 @@ def _guess_type(state: str) -> str:
 
 
 def _ensure_ha_device(db: Session) -> Device:
-    """确保 HA 统一设备存在，每次调用刷心跳"""
+    """确保 HA 统一设备存在，每次调用刷心跳 + server_received_at"""
     import hashlib
     device_id = hashlib.md5(f"HA:{HA_DEVICE_NAME}".encode()).hexdigest()[:12]
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -118,6 +118,10 @@ def _ensure_ha_device(db: Session) -> Device:
             registered_at=now_str
         )
         db.add(dev)
+
+    # 刷新服务器专用 server_received_at key（HA 状态上报 = 服务器接收上报时间）
+    from services.device_activity import write_report_time_silent
+    write_report_time_silent(db, dev, now_str)
     return dev
 
 

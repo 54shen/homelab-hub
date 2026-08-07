@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI):
     _ensure_schema_compat()
     _ensure_admin_user()
     _ensure_clipboard()
+    _ensure_report_time_keys()
     scheduler = init_scheduler()
     scheduler.add_job(cleanup_history, "interval", hours=CLEANUP_INTERVAL_HOURS, id="cleanup")
     # check_device_offline 只负责标记设备离线（UI 状态），告警触发改由心跳路径实时预约
@@ -92,6 +93,16 @@ def _ensure_clipboard():
     db = SessionLocal()
     try:
         ensure_clipboard(db)
+    finally:
+        db.close()
+
+
+def _ensure_report_time_keys():
+    """确保每个设备都有 server_received_at key（启动同步 + 旧名迁移）"""
+    from services.device_activity import ensure_report_time_keys
+    db = SessionLocal()
+    try:
+        ensure_report_time_keys(db)
     finally:
         db.close()
 

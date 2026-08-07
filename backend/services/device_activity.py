@@ -3,11 +3,15 @@
 #
 # 背景：在线判定只认 Device.last_heartbeat。本模块让"变量上报"
 #       也成为设备活跃信号（复用现有超时离线检测与离线告警），
-#       并为每设备维护服务器专用 key "{name}.设备上报时间"。
+#       并为每设备维护服务器专用 key "{name}.server_received_at"。
 # ============================================================
+from datetime import datetime
 from sqlalchemy.orm import Session
 from models import Device, KvEntry
 from constants import CLIPBOARD_DEVICE_NAME, REPORT_TIME_SUFFIX
+
+# 改名前的旧后缀（"设备上报时间"→"server_received_at"），启动同步时清理残留
+LEGACY_REPORT_TIME_SUFFIX = ".设备上报时间"
 
 
 def device_prefixes(d: Device) -> list[str]:
@@ -41,16 +45,19 @@ def resolve_device_by_key(db: Session, key: str) -> Device | None:
     return best
 
 
-def write_report_time_silent(db: Session, device: Device, now_str: str) -> None:
-    """静默 upsert 服务器专用 key "{name}.设备上报时间"
+def write_report_time_silent(db: Session, device: Device, now_str: str,
+                             update_existing: bool = True) -> None:
+    """静默 upsert 服务器专用 key "{name}.server_received_at"
 
     只服务器写（source 恒为 "system"）；不写 KvHistory、不触发告警、
     不广播 WS —— 该 key 每次上报都变，写历史是纯噪音。
+    update_existing=False 时已有 key 保持原值（启动同步只保证存在性，
+    不虚增上报时间）。
     """
     key = f"{device.name}{REPORT_TIME_SUFFIX}"
     entry = db.query(KvEntry).filter(KvEntry.key == key).first()
     if entry:
-        if entry.value != now_str:  # 同一秒重复上报 → 无操作
+        if update_existing and entry.value != now_str:  # 同一秒重复上报 → 无操作
             entry.value = now_str
             entry.source = "system"
             entry.type = "string"
@@ -64,6 +71,25 @@ def write_report_time_silent(db: Session, device: Device, now_str: str) -> None:
             retention_days=3650,
             updated_at=now_str
         ))
+
+
+def ensure_report_time_keys(db: Session) -> None:
+    """启动同步（幂等）：设备存在 → server_received_at key 必须存在
+
+    - 迁移：清理改名前的旧 key "*.设备上报时间" 残留（已被新 key 取代）
+    - 为所有非剪切板设备补齐 key（含 HA，HA 由 /api/ha/state 每次刷新）；
+      已有 key 保持原值（update_existing=False），不虚增上报时间
+    """
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    for old in db.query(KvEntry).filter(
+            KvEntry.key.like(f"%{LEGACY_REPORT_TIME_SUFFIX}")).all():
+        db.delete(old)
+
+    for d in db.query(Device).filter(Device.name != CLIPBOARD_DEVICE_NAME).all():
+        write_report_time_silent(db, d, now_str, update_existing=False)
+
+    db.commit()
 
 
 def mark_device_active(db: Session, device: Device, now_str: str,

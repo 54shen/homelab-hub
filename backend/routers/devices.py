@@ -120,7 +120,7 @@ async def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_
         # 首次注册：创建 KV
         _sync_timeout_kv(db, timeout_kv_key, timeout)
 
-    # 服务器专用"设备上报时间" key（注册即存在，便于前端展示）
+    # 服务器专用"server_received_at" key（注册即存在，便于前端展示）
     write_report_time_silent(db, existing or device, now_str)
 
     db.commit()
@@ -147,7 +147,7 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
         db.flush()
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    # 统一刷新活跃度：online 状态 + last_heartbeat + "设备上报时间" key + 重新预约离线检查
+    # 统一刷新活跃度：online 状态 + last_heartbeat + "server_received_at" key + 重新预约离线检查
     mark_device_active(db, device, now_str, online=req.online)
     if req.cpu is not None:
         device.cpu = req.cpu

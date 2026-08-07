@@ -88,7 +88,7 @@ def _delete_kv_sync(key: str, db: Session):
 def _dispatch_kv_write(req: KvSetRequest, db: Session) -> tuple[str, bool, str | None]:
     """统一分流：所有 KV 写入口（/api/kv、batch、import）共用
 
-    - 服务器独占 key（*.设备上报时间）→ 强制服务器写入：不采信设备传入的
+    - 服务器独占 key（*.server_received_at）→ 强制服务器写入：不采信设备传入的
       value/source/type，覆盖为当前时间 + source="system"；反推不到设备则丢弃。
     - 普通 key → 先刷新设备活跃度（值无变化也记录上报时间），再走原 _set_kv_sync。
     返回 (now_str, changed, old_value)，语义与 _set_kv_sync 一致。
@@ -183,7 +183,7 @@ async def delete_kv(key: str, db: Session = Depends(get_db), token=Depends(auth_
 
 @router.post("/kv/batch-delete", response_model=ApiResponse)
 def batch_delete_kv(req: KvBatchDeleteRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
-    # 内置变量（剪切板/设备上报时间）跳过，不允许删除
+    # 内置变量（剪切板/server_received_at）跳过，不允许删除
     keys = [k for k in req.keys if not is_clipboard_key(k) and not is_report_time_key(k)]
     skipped = len(req.keys) - len(keys)
     for key in keys:

@@ -5,7 +5,12 @@
 export const CLIPBOARD_KEY = '剪切板.内容'
 export const CLIPBOARD_RETENTION_DAYS = 3650
 
+// 服务器专用 key 后缀（设备上报时间，只能服务器写、不可删除）
+export const REPORT_TIME_SUFFIX = '.server_received_at'
+
 export const isClipboardKey = (key: string): boolean => key === CLIPBOARD_KEY
+
+export const isReportTimeKey = (key: string): boolean => key.endsWith(REPORT_TIME_SUFFIX)
 
 export interface ClipboardPayload {
   topic: string

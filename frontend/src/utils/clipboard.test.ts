@@ -3,7 +3,7 @@
 // ============================================================
 import { describe, expect, it } from 'vitest'
 import {
-  CLIPBOARD_KEY, decodeClipboard, encodeClipboard, isClipboardKey,
+  CLIPBOARD_KEY, decodeClipboard, encodeClipboard, isClipboardKey, isReportTimeKey,
 } from './clipboard'
 
 describe('clipboard 编解码', () => {
@@ -44,5 +44,11 @@ describe('clipboard 编解码', () => {
     expect(isClipboardKey(CLIPBOARD_KEY)).toBe(true)
     expect(isClipboardKey('剪切板.其他')).toBe(false)
     expect(isClipboardKey('clipboard')).toBe(false)
+  })
+
+  it('isReportTimeKey:匹配 server_received_at 内置后缀', () => {
+    expect(isReportTimeKey('测试机.server_received_at')).toBe(true)
+    expect(isReportTimeKey('测试机.温度')).toBe(false)
+    expect(isReportTimeKey('server_received_at')).toBe(false)
   })
 })

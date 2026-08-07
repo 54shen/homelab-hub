@@ -74,16 +74,20 @@ vi.mock('naive-ui', () => ({
       })
     }
   }),
-  // 表格 stub:渲染行 + 提供"勾选全部"按钮来模拟 update:checked-row-keys 事件
+  // 表格 stub:渲染行 + 提供"勾选全部"按钮来模拟 update:checked-row-keys 事件 + "排序"按钮模拟 update:sorter
   NDataTable: defineComponent({
     props: ['data', 'checkedRowKeys', 'columns'],
-    emits: ['update:checked-row-keys', 'update:page', 'update:page-size'],
+    emits: ['update:checked-row-keys', 'update:page', 'update:page-size', 'update:sorter'],
     setup(props, { emit }) {
       return () => h('div', { class: 'n-data-table' }, [
         h('button', {
           class: 'check-all',
           onClick: () => emit('update:checked-row-keys', (props.data || []).map((r: any) => r.key))
         }, '勾选全部'),
+        h('button', {
+          class: 'sort-all',
+          onClick: () => emit('update:sorter', { columnKey: 'key', order: 'ascend', sorter: true })
+        }, '排序'),
         ...(props.data || []).map((r: any) => h('div', { class: 'table-row', 'data-key': r.key }, String(r.key)))
       ])
     }
@@ -168,6 +172,20 @@ describe('KvManager.vue', () => {
     const wrapper = mountPage()
     await flushPromises()
     expect(wrapper.findAll('.table-row')).toHaveLength(0)
+  })
+
+  it('列排序:点击排序后 key 升序排列', async () => {
+    mockRows()
+    const wrapper = mountPage()
+    await flushPromises()
+    // 默认顺序 = 接口返回顺序
+    let rows = wrapper.findAll('.table-row')
+    expect(rows[0].text()).toContain('pc.cpu')
+
+    await wrapper.find('.sort-all').trigger('click')
+    await flushPromises()
+    rows = wrapper.findAll('.table-row')
+    expect(rows[0].text()).toContain('HA.temperature')   // key 升序后 HA 在前
   })
 
   it('搜索框过滤列表', async () => {

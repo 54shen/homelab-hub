@@ -1,6 +1,7 @@
 # ============================================================
 # 设备管理模块测试:注册/心跳/变量/注销
 # ============================================================
+from models import KvEntry
 
 
 def test_register_new_device(client, admin_headers):
@@ -82,21 +83,44 @@ def test_device_variables_hyphen_name(client, admin_headers):
 
 
 def test_heartbeat_updates_report_time_key(client, admin_headers):
-    """心跳 → 更新服务器专用 设备上报时间 key,值 == last_heartbeat"""
+    """心跳 → 更新服务器专用 server_received_at key,值 == last_heartbeat"""
     client.post("/api/device/register", json={"name": "测试机", "type": "pc"}, headers=admin_headers)
     client.post("/api/device/heartbeat", json={"name": "测试机", "online": True}, headers=admin_headers)
     dev = next(d for d in client.get("/api/devices", headers=admin_headers).json() if d["name"] == "测试机")
-    kv = client.get("/api/kv/测试机.设备上报时间", headers=admin_headers).json()
+    kv = client.get("/api/kv/测试机.server_received_at", headers=admin_headers).json()
     assert kv["value"] == dev["last_heartbeat"]
     assert kv["source"] == "system"
 
 
 def test_heartbeat_auto_register_creates_report_time_key(client, admin_headers):
-    """心跳自动注册的设备 → 也建 设备上报时间 key"""
+    """心跳自动注册的设备 → 也建 server_received_at key"""
     client.post("/api/device/heartbeat", json={"name": "新设备", "online": True}, headers=admin_headers)
-    kv = client.get("/api/kv/新设备.设备上报时间", headers=admin_headers).json()
+    kv = client.get("/api/kv/新设备.server_received_at", headers=admin_headers).json()
     assert kv["source"] == "system"
     assert kv["value"]
+
+
+def test_ensure_report_time_keys_backfills(client, admin_headers, db):
+    """启动同步：设备存在 → server_received_at key 必须存在"""
+    from services.device_activity import ensure_report_time_keys
+    client.post("/api/device/register", json={"name": "旧设备", "type": "pc"}, headers=admin_headers)
+    # 模拟升级场景：key 缺失（如旧库）
+    db.query(KvEntry).filter(KvEntry.key == "旧设备.server_received_at").delete()
+    db.commit()
+    ensure_report_time_keys(db)
+    assert db.query(KvEntry).filter(KvEntry.key == "旧设备.server_received_at").first() is not None
+
+
+def test_ensure_report_time_keys_migrates_legacy(client, admin_headers, db):
+    """启动同步：清理改名前的旧 key（设备上报时间）残留"""
+    from services.device_activity import ensure_report_time_keys
+    client.post("/api/device/register", json={"name": "旧设备", "type": "pc"}, headers=admin_headers)
+    db.add(KvEntry(key="旧设备.设备上报时间", value="2026-08-07 10:00:00",
+                   type="string", source="system", retention_days=3650))
+    db.commit()
+    ensure_report_time_keys(db)
+    assert db.query(KvEntry).filter(KvEntry.key == "旧设备.设备上报时间").first() is None
+    assert db.query(KvEntry).filter(KvEntry.key == "旧设备.server_received_at").first() is not None
 
 
 def test_unregister_device(client, admin_headers):

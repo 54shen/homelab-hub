@@ -28,7 +28,7 @@ def test_stats_with_data(client, admin_headers):
     assert body["online_devices"] == 1
     assert body["total_services"] == 2
     assert body["running_services"] == 1
-    # 注册设备会各自动创建 心跳超时 + 设备上报时间 KV,所以总共 3+4=7 个 key
+    # 注册设备会各自动创建 心跳超时 + server_received_at KV,所以总共 3+4=7 个 key
     assert body["total_keys"] == 7
     assert body["network_status"] == "online"
     assert body["public_ip"] == "1.2.3.4"

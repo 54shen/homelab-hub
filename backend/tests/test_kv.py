@@ -114,7 +114,7 @@ def test_heartbeat_timeout_sync_via_transformed_prefix(client, admin_headers):
 
 
 # ============================================================
-# 设备活跃度：变量上报刷新在线状态 + 服务器专用"设备上报时间" key
+# 设备活跃度：变量上报刷新在线状态 + 服务器专用"server_received_at" key
 # ============================================================
 
 def _register(client, admin_headers, name, typ="pc"):
@@ -132,7 +132,7 @@ def test_kv_report_refreshes_device_heartbeat(client, admin_headers):
 
 
 def test_kv_report_unchanged_value_still_refreshes_report_time(client, admin_headers):
-    """值无变化(静默)也要记录设备上报时间"""
+    """值无变化(静默)也要记录server_received_at"""
     _register(client, admin_headers, "测试机")
     for _ in range(2):
         client.post("/api/kv", json={"key": "测试机.温度", "value": "25"}, headers=admin_headers)
@@ -142,18 +142,18 @@ def test_kv_report_unchanged_value_still_refreshes_report_time(client, admin_hea
     assert r.json()["total"] == 1
 
     # 但上报时间 key 存在且由服务器写
-    kv = client.get("/api/kv/测试机.设备上报时间", headers=admin_headers).json()
+    kv = client.get("/api/kv/测试机.server_received_at", headers=admin_headers).json()
     assert kv["source"] == "system"
     assert kv["type"] == "string"
 
 
 def test_report_time_key_is_server_overridden(client, admin_headers):
-    """设备伪造上传 设备上报时间 → 服务器强制覆盖为当前时间"""
+    """设备伪造上传 server_received_at → 服务器强制覆盖为当前时间"""
     _register(client, admin_headers, "测试机")
-    r = client.post("/api/kv", json={"key": "测试机.设备上报时间", "value": "evil", "source": "hacker", "type": "int"},
+    r = client.post("/api/kv", json={"key": "测试机.server_received_at", "value": "evil", "source": "hacker", "type": "int"},
                     headers=admin_headers)
     assert r.status_code == 200
-    kv = client.get("/api/kv/测试机.设备上报时间", headers=admin_headers).json()
+    kv = client.get("/api/kv/测试机.server_received_at", headers=admin_headers).json()
     datetime.strptime(kv["value"], "%Y-%m-%d %H:%M:%S")   # 值被覆盖为合法时间戳
     assert kv["source"] == "system"
     assert kv["type"] == "string"
@@ -164,15 +164,15 @@ def test_report_time_key_no_history_noise(client, admin_headers):
     _register(client, admin_headers, "测试机")
     for v in ("1", "2", "3"):
         client.post("/api/kv", json={"key": "测试机.温度", "value": v}, headers=admin_headers)
-    r = client.get("/api/history", params={"key": "测试机.设备上报时间"}, headers=admin_headers)
+    r = client.get("/api/history", params={"key": "测试机.server_received_at"}, headers=admin_headers)
     assert r.json()["total"] == 0
 
 
 def test_report_time_key_unknown_device_dropped(client, admin_headers):
     """未知设备的上报时间 key → 整个丢弃,不建幽灵 key"""
-    r = client.post("/api/kv", json={"key": "幽灵.设备上报时间", "value": "1"}, headers=admin_headers)
+    r = client.post("/api/kv", json={"key": "幽灵.server_received_at", "value": "1"}, headers=admin_headers)
     assert r.status_code == 200
-    assert client.get("/api/kv/幽灵.设备上报时间", headers=admin_headers).status_code == 404
+    assert client.get("/api/kv/幽灵.server_received_at", headers=admin_headers).status_code == 404
 
 
 def test_batch_kv_multi_device_mixed(client, admin_headers):
@@ -182,13 +182,13 @@ def test_batch_kv_multi_device_mixed(client, admin_headers):
     r = client.post("/api/kv/batch", json={"items": [
         {"key": "设备A.温度", "value": "1"},
         {"key": "设备B.温度", "value": "2"},
-        {"key": "设备B.设备上报时间", "value": "fake"},
+        {"key": "设备B.server_received_at", "value": "fake"},
     ]}, headers=admin_headers)
     assert r.status_code == 200
     devs = {d["name"]: d for d in client.get("/api/devices", headers=admin_headers).json()}
     assert devs["设备A"]["online"] is True
     assert devs["设备B"]["online"] is True
-    kv = client.get("/api/kv/设备B.设备上报时间", headers=admin_headers).json()
+    kv = client.get("/api/kv/设备B.server_received_at", headers=admin_headers).json()
     assert kv["source"] == "system"
     assert kv["value"] != "fake"
 
@@ -199,7 +199,7 @@ def test_hyphen_name_resolve_from_transformed_prefix(client, admin_headers):
     client.post("/api/kv", json={"key": "监控.1.cpu", "value": "5"}, headers=admin_headers)
     dev = next(d for d in client.get("/api/devices", headers=admin_headers).json() if d["name"] == "监控-1")
     assert dev["online"] is True
-    assert client.get("/api/kv/监控-1.设备上报时间", headers=admin_headers).status_code == 200
+    assert client.get("/api/kv/监控-1.server_received_at", headers=admin_headers).status_code == 200
 
 
 def test_dot_in_device_name_longest_prefix(client, admin_headers):
@@ -216,9 +216,9 @@ def test_dot_in_device_name_longest_prefix(client, admin_headers):
 def test_report_time_key_delete_forbidden(client, admin_headers):
     """删除服务器独占 key → 403"""
     _register(client, admin_headers, "测试机")
-    r = client.delete("/api/kv/测试机.设备上报时间", headers=admin_headers)
+    r = client.delete("/api/kv/测试机.server_received_at", headers=admin_headers)
     assert r.status_code == 403
     # 批量删除也会被过滤
-    r = client.post("/api/kv/batch-delete", json={"keys": ["测试机.设备上报时间"]}, headers=admin_headers)
+    r = client.post("/api/kv/batch-delete", json={"keys": ["测试机.server_received_at"]}, headers=admin_headers)
     assert r.status_code == 200
-    assert client.get("/api/kv/测试机.设备上报时间", headers=admin_headers).status_code == 200
+    assert client.get("/api/kv/测试机.server_received_at", headers=admin_headers).status_code == 200
