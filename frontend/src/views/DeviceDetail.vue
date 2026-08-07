@@ -405,7 +405,8 @@ const subDevices = computed<SubDevice[]>(() => {
   if (!device.value || device.value.type !== 'ha') return []
 
   const prefix = device.value.name + '.'
-  const vars = variables.value.filter(v => v.key.startsWith(prefix))
+  // 系统键(心跳超时/server_received_at)不参与子设备分组
+  const vars = variables.value.filter(v => v.key.startsWith(prefix) && !isSystemKey(v.key))
 
   // 按设备名分组
   const groups: Record<string, { props: SubDeviceProp[]; updatedAt: string }> = {}

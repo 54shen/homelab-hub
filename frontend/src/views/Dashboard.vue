@@ -208,6 +208,12 @@ async function copyTotpCode() {
   }
 }
 const devices = ref<Device[]>([])
+
+// 系统键按后缀排除(不依赖 source:心跳超时可能被前端改成 admin(Web) 等)
+function isSystemKey(key: string): boolean {
+  const suffix = key.split('.').pop() || ''
+  return suffix === '心跳超时' || suffix === 'server_received_at'
+}
 const showHistory = ref(false)
 const historyKey = ref('')
 const haVarCounts = ref<Record<string, number>>({})
@@ -335,7 +341,8 @@ async function loadData() {
         if (d.type === 'ha') {
           try {
             const vRes = await deviceApi.variables(d.id)
-            const vars = vRes.data || []
+            // 系统键(心跳超时/server_received_at)不参与摘要
+            const vars = (vRes.data || []).filter(v => !isSystemKey(v.key))
             haVarCounts.value[d.id] = vars.length
             const prefix = d.name + '.'
             const summary: Record<string, string> = {}
