@@ -1,6 +1,7 @@
 # ============================================================
 # Shared Center — KV 变量 API
 # ============================================================
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from websocket_manager import broadcast
@@ -11,7 +12,8 @@ from schemas import (
     KvEntryOut, ApiResponse
 )
 from auth import auth_write
-from constants import is_clipboard_key
+from constants import is_clipboard_key, is_report_time_key
+from services.device_activity import resolve_device_by_key, mark_device_active
 import json
 
 router = APIRouter(prefix="/api", tags=["KV 变量"])
@@ -83,6 +85,30 @@ def _delete_kv_sync(key: str, db: Session):
         db.delete(entry)
 
 
+def _dispatch_kv_write(req: KvSetRequest, db: Session) -> tuple[str, bool, str | None]:
+    """统一分流：所有 KV 写入口（/api/kv、batch、import）共用
+
+    - 服务器独占 key（*.设备上报时间）→ 强制服务器写入：不采信设备传入的
+      value/source/type，覆盖为当前时间 + source="system"；反推不到设备则丢弃。
+    - 普通 key → 先刷新设备活跃度（值无变化也记录上报时间），再走原 _set_kv_sync。
+    返回 (now_str, changed, old_value)，语义与 _set_kv_sync 一致。
+    """
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 分支 A：服务器独占 key → 强制覆盖
+    if is_report_time_key(req.key):
+        device = resolve_device_by_key(db, req.key)
+        if device:
+            mark_device_active(db, device, now_str)
+        return now_str, False, None
+
+    # 分支 B：普通 key → 先刷活跃度，再原逻辑写入
+    device = resolve_device_by_key(db, req.key)
+    if device:
+        mark_device_active(db, device, now_str)
+    return _set_kv_sync(req, db)
+
+
 # ---- 路由 ----
 
 @router.get("/list", response_model=list[KvEntryOut])
@@ -118,15 +144,13 @@ def get_kv(key: str, db: Session = Depends(get_db)):
 
 @router.post("/kv", response_model=ApiResponse)
 async def set_kv(req: KvSetRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
-    now_str, changed, old_value = _set_kv_sync(req, db)
+    now_str, changed, old_value = _dispatch_kv_write(req, db)
     db.commit()
 
-    # 心跳超时 KV 同步到 Device 表
+    # 心跳超时 KV 同步到 Device 表（最长前缀反推：兼容转换前缀与含点设备名）
     if req.key.endswith(".心跳超时"):
         try:
-            device_name = req.key.rsplit(".", 1)[0]
-            from models import Device
-            dev = db.query(Device).filter(Device.name == device_name).first()
+            dev = resolve_device_by_key(db, req.key)
             if dev:
                 dev.heartbeat_timeout = int(req.value)
                 db.commit()
@@ -142,15 +166,15 @@ async def set_kv(req: KvSetRequest, db: Session = Depends(get_db), token=Depends
 @router.post("/kv/batch", response_model=ApiResponse)
 def batch_set_kv(req: KvBatchRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
     for item in req.items:
-        _set_kv_sync(item, db)
+        _dispatch_kv_write(item, db)
     db.commit()
     return ApiResponse(success=True, message=f"已写入 {len(req.items)} 个变量")
 
 
 @router.delete("/kv/{key}", response_model=ApiResponse)
 async def delete_kv(key: str, db: Session = Depends(get_db), token=Depends(auth_write)):
-    if is_clipboard_key(key):
-        raise HTTPException(403, "剪切板为内置变量，不允许删除")
+    if is_clipboard_key(key) or is_report_time_key(key):
+        raise HTTPException(403, "系统内置变量，不允许删除")
     _delete_kv_sync(key, db)
     db.commit()
     await broadcast("kv.deleted", {"key": key})
@@ -159,8 +183,8 @@ async def delete_kv(key: str, db: Session = Depends(get_db), token=Depends(auth_
 
 @router.post("/kv/batch-delete", response_model=ApiResponse)
 def batch_delete_kv(req: KvBatchDeleteRequest, db: Session = Depends(get_db), token=Depends(auth_write)):
-    # 内置变量（剪切板）跳过，不允许删除
-    keys = [k for k in req.keys if not is_clipboard_key(k)]
+    # 内置变量（剪切板/设备上报时间）跳过，不允许删除
+    keys = [k for k in req.keys if not is_clipboard_key(k) and not is_report_time_key(k)]
     skipped = len(req.keys) - len(keys)
     for key in keys:
         _delete_kv_sync(key, db)
@@ -178,7 +202,7 @@ async def import_kv(file: __import__("fastapi").UploadFile, db: Session = Depend
     count = 0
     for item in items:
         if "key" in item and "value" in item:
-            _set_kv_sync(KvSetRequest(
+            _dispatch_kv_write(KvSetRequest(
                 key=item["key"], value=str(item["value"]),
                 type=item.get("type", "string"),
                 source=item.get("source", "import"),

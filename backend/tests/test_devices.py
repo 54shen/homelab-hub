@@ -81,6 +81,24 @@ def test_device_variables_hyphen_name(client, admin_headers):
     assert "监控-1.心跳超时" in keys
 
 
+def test_heartbeat_updates_report_time_key(client, admin_headers):
+    """心跳 → 更新服务器专用 设备上报时间 key,值 == last_heartbeat"""
+    client.post("/api/device/register", json={"name": "测试机", "type": "pc"}, headers=admin_headers)
+    client.post("/api/device/heartbeat", json={"name": "测试机", "online": True}, headers=admin_headers)
+    dev = next(d for d in client.get("/api/devices", headers=admin_headers).json() if d["name"] == "测试机")
+    kv = client.get("/api/kv/测试机.设备上报时间", headers=admin_headers).json()
+    assert kv["value"] == dev["last_heartbeat"]
+    assert kv["source"] == "system"
+
+
+def test_heartbeat_auto_register_creates_report_time_key(client, admin_headers):
+    """心跳自动注册的设备 → 也建 设备上报时间 key"""
+    client.post("/api/device/heartbeat", json={"name": "新设备", "online": True}, headers=admin_headers)
+    kv = client.get("/api/kv/新设备.设备上报时间", headers=admin_headers).json()
+    assert kv["source"] == "system"
+    assert kv["value"]
+
+
 def test_unregister_device(client, admin_headers):
     client.post("/api/device/register", json={"name": "待删除", "type": "pc"}, headers=admin_headers)
     dev = next(d for d in client.get("/api/devices", headers=admin_headers).json() if d["name"] == "待删除")

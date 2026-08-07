@@ -16,6 +16,13 @@ CLIPBOARD_DEVICE_ID = hashlib.md5(
 # ---- 登录安全：仅验证码登录开关（存 UISetting） ----
 AUTH_CODE_ONLY_KEY = "auth_code_only"
 
+# ---- 服务器专用 key：设备上报时间（只能服务器写，设备上传被强制覆盖） ----
+REPORT_TIME_SUFFIX = ".设备上报时间"
+
+
+def is_report_time_key(key: str) -> bool:
+    return key.endswith(REPORT_TIME_SUFFIX)
+
 
 def is_clipboard_key(key: str) -> bool:
     return key == CLIPBOARD_KEY

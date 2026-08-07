@@ -15,6 +15,7 @@ from websocket_manager import broadcast
 from auth import auth_write
 from config import DEFAULT_HEARTBEAT_TIMEOUT
 from constants import CLIPBOARD_DEVICE_NAME, is_clipboard_device
+from services.device_activity import device_prefixes, mark_device_active, write_report_time_silent
 
 router = APIRouter(prefix="/api", tags=["设备管理"])
 
@@ -69,10 +70,8 @@ def get_device_variables(device_id: str, db: Session = Depends(get_db)):
         return []
     # 兼容两种前缀:原始名称(注册/心跳写入用,如 "监控-1.xxx")和
     # 转换名称(连字符/空格→点,如 "监控.1.xxx"),取并集避免漏变量
-    prefixes = [d.name + "."]
-    transformed = d.name.lower().replace("-", ".").replace(" ", ".")
-    if transformed + "." != prefixes[0]:
-        prefixes.append(transformed + ".")
+    # (与 services/device_activity.py 的 device_prefixes 同源)
+    prefixes = device_prefixes(d)
     return db.query(KvEntry).filter(
         sqlalchemy.or_(*[KvEntry.key.like(f"{p}%") for p in prefixes])
     ).all()
@@ -103,7 +102,7 @@ async def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_
         _sync_timeout_kv(db, timeout_kv_key, existing.heartbeat_timeout or DEFAULT_HEARTBEAT_TIMEOUT)
     else:
         timeout = req.heartbeat_timeout if req.heartbeat_timeout > 0 else DEFAULT_HEARTBEAT_TIMEOUT
-        db.add(Device(
+        device = Device(
             id=device_id,
             name=req.name,
             hostname=req.hostname,
@@ -116,9 +115,13 @@ async def register_device(req: DeviceRegisterRequest, db: Session = Depends(get_
             heartbeat_timeout=timeout,
             last_heartbeat=now_str,
             registered_at=now_str
-        ))
+        )
+        db.add(device)
         # 首次注册：创建 KV
         _sync_timeout_kv(db, timeout_kv_key, timeout)
+
+    # 服务器专用"设备上报时间" key（注册即存在，便于前端展示）
+    write_report_time_silent(db, existing or device, now_str)
 
     db.commit()
     await broadcast("device.registered", {"name": req.name, "type": req.type, "group": req.group or "默认"})
@@ -144,8 +147,8 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
         db.flush()
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    device.online = req.online
-    device.last_heartbeat = now_str
+    # 统一刷新活跃度：online 状态 + last_heartbeat + "设备上报时间" key + 重新预约离线检查
+    mark_device_active(db, device, now_str, online=req.online)
     if req.cpu is not None:
         device.cpu = req.cpu
     if req.memory is not None:
@@ -195,13 +198,6 @@ async def device_heartbeat(req: DeviceHeartbeatRequest, db: Session = Depends(ge
         _sync_kv("volume", str(req.volume), str(old_volume) if old_volume is not None else None)
 
     db.commit()
-
-    # 预约离线告警检查（每次心跳到达，取消旧预约，重新预约 now + timeout 秒后检查）
-    if req.online:
-        from services.alerts import schedule_offline_check
-        from config import DEFAULT_HEARTBEAT_TIMEOUT
-        timeout = device.heartbeat_timeout if device.heartbeat_timeout and device.heartbeat_timeout > 0 else DEFAULT_HEARTBEAT_TIMEOUT
-        schedule_offline_check(req.name, timeout)
 
     await broadcast("device.heartbeat", {
         "name": req.name, "online": req.online,
