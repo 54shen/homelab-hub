@@ -212,6 +212,12 @@ function isPcType(type: string): boolean {
   return type === 'computer' || type === 'pc'
 }
 
+// 系统键按后缀排除(不依赖 source:心跳超时可能被前端改成 admin(Web) 等)
+function isSystemKey(key: string): boolean {
+  const suffix = key.split('.').pop() || ''
+  return suffix === '心跳超时' || suffix === 'server_received_at'
+}
+
 // 非 PC 设备变量 chips 图标(按 key 后缀)
 const SVC_VAR_ICONS: Record<string, string> = {
   proxies_running: '🔌', proxies_total: '🔗', version: '🏷️', error: '⚠️'
@@ -238,8 +244,8 @@ async function loadData() {
     if (d.type === 'ha') {
       try {
         const vRes = await deviceApi.variables(d.id)
-        // 排除系统键(心跳超时/server_received_at),chips 和计数都不显示
-        const vars = (vRes.data || []).filter(v => v.source !== 'system')
+        // 系统键(心跳超时/server_received_at)按后缀排除,chips 和计数都不显示
+        const vars = (vRes.data || []).filter(v => !isSystemKey(v.key))
         haVarCounts.value[d.id] = vars.length
 
         // 提取子设备名和图标
@@ -270,7 +276,7 @@ async function loadData() {
       // 非 PC 设备(服务类,如 FRP):业务变量 → 字段映射后的 chips
       try {
         const vRes = await deviceApi.variables(d.id)
-        const vars = (vRes.data || []).filter(v => v.source !== 'system')
+        const vars = (vRes.data || []).filter(v => !isSystemKey(v.key))
         svcVarCounts.value[d.id] = vars.length
         svcVarSummary.value[d.id] = vars.slice(0, 8).map(v => {
           const suffix = (v.key.split('.').pop() || '').toLowerCase()

@@ -324,6 +324,12 @@ function isPcType(type: string): boolean {
   return type === 'computer' || type === 'pc'
 }
 
+// 系统键按后缀排除(不依赖 source:心跳超时可能被前端改成 admin(Web) 等)
+function isSystemKey(key: string): boolean {
+  const suffix = key.split('.').pop() || ''
+  return suffix === '心跳超时' || suffix === 'server_received_at'
+}
+
 const SVC_VAR_ICONS: Record<string, string> = {
   proxies_running: '🔌', proxies_total: '🔗', version: '🏷️', error: '⚠️'
 }
@@ -340,9 +346,9 @@ function relTime(ts: string): string {
 
 const serviceCards = computed(() => {
   if (!device.value || device.value.type === 'ha' || isPcType(device.value.type)) return []
-  // 只显示业务变量:排除系统键(心跳超时/server_received_at)
+  // 只显示业务变量:系统键(心跳超时/server_received_at)按后缀排除
   return variables.value
-    .filter(v => v.source !== 'system')
+    .filter(v => !isSystemKey(v.key))
     .map(v => {
       const suffix = (v.key.split('.').pop() || '').toLowerCase()
       return {
