@@ -22,7 +22,7 @@
         :primary="stats.total_devices"
         :secondary="stats.total_keys"
         label="设备 / 变量"
-        to="/variables"
+        to="/devices"
       />
       <StatCard
         icon="wifi-outline"
