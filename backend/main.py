@@ -2,6 +2,7 @@
 # Shared Center — FastAPI 主入口
 # ============================================================
 from contextlib import asynccontextmanager
+from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -40,7 +41,10 @@ async def lifespan(app: FastAPI):
     _ensure_clipboard()
     _ensure_report_time_keys()
     scheduler = init_scheduler()
-    scheduler.add_job(cleanup_history, "interval", hours=CLEANUP_INTERVAL_HOURS, id="cleanup")
+    # next_run_time=now:重启后立即先清一遍积压过期数据,再按 interval 周期走
+    # (默认 interval 首次触发要等一个完整间隔,部署重启后 24h 内不清理会积压)
+    scheduler.add_job(cleanup_history, "interval", hours=CLEANUP_INTERVAL_HOURS,
+                      id="cleanup", next_run_time=datetime.now())
     # check_device_offline 只负责标记设备离线（UI 状态），告警触发改由心跳路径实时预约
     scheduler.add_job(check_device_offline, "interval", seconds=HEARTBEAT_TIMEOUT_SECONDS, id="heartbeat_check")
     scheduler.start()

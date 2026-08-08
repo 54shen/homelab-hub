@@ -337,6 +337,8 @@ location ^~ / {
 | GET | `/api/history/stats` | 总览:总数 / 最近变更 / 近 24h 来源与小时分布 |
 | GET | `/api/history/export` | 导出 CSV(带当前筛选) |
 
+> **数据保留机制**:每条历史记录按写入时 KV 变量的 `retention_days`(默认 180 天)快照,过期记录由定时任务自动清理(默认每 24h 一次,**服务重启后立即执行一次**——避免部署重启后积压)。清理任务位于 `services/cleanup.py`,间隔可用环境变量 `CLEANUP_INTERVAL_HOURS` 调整。
+
 ### 设备
 
 | 方法 | 路径 | 说明 |
@@ -532,7 +534,7 @@ mode: parallel
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./data/shared_center.db` | 数据库路径 |
 | `DEFAULT_RETENTION_DAYS` | `180` | 历史数据默认保留天数(每个 key 可单独覆盖) |
-| `CLEANUP_INTERVAL_HOURS` | `24` | 定时清理间隔(小时) |
+| `CLEANUP_INTERVAL_HOURS` | `24` | 定时清理间隔(小时),服务启动时立即执行一次再按此间隔周期清理 |
 | `HEARTBEAT_TIMEOUT_SECONDS` | `60` | 设备心跳超时,超过自动标记离线 |
 
 ### 前端(`frontend/.env`)
